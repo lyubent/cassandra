@@ -561,6 +561,10 @@ public class CassandraServer implements Cassandra.Iface
                                           pageSize,
                                           timestamp);
         }
+        catch (IllegalArgumentException e)
+        {
+            throw new InvalidRequestException(e.getMessage());
+        }
         catch (RequestExecutionException e)
         {
             throw ThriftConversion.rethrow(e);
