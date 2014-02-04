@@ -26,6 +26,7 @@ import com.google.common.primitives.Ints;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
 import org.antlr.runtime.*;
+import org.apache.cassandra.service.StorageService;
 import org.github.jamm.MemoryMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -180,6 +181,9 @@ public class QueryProcessor
                                                   String queryString)
     throws RequestExecutionException, RequestValidationException
     {
+        if (StorageService.instance.getQueryRecordingFrequency() != null)
+            logger.debug("Query executed {}", queryString);
+
         logger.trace("Process {} @CL.{}", statement, options.getConsistency());
         ClientState clientState = queryState.getClientState();
         statement.checkAccess(clientState);

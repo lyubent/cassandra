@@ -173,6 +173,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private boolean initialized;
     private volatile boolean joined = false;
 
+    /* Used for keeping track of whether QueryProcessor is recording queries */
+    private Integer queryRecordingFrequency = null;
+
     /* the probability for tracing any particular request, 0 disables tracing and 1 enables for all */
     private double tracingProbability = 0.0;
 
@@ -3817,5 +3820,19 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setTombstoneFailureThreshold(int threshold)
     {
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
+    }
+
+    /*
+     * The frequency represents every nth query to be recorded, if the value 1 is supplied,
+     * that means every query will be recorded, 2 means every second query will be recorded etc.
+     */
+    public void enableQueryRecording(int frequency)
+    {
+        queryRecordingFrequency = frequency;
+    }
+
+    public Integer getQueryRecordingFrequency()
+    {
+        return queryRecordingFrequency;
     }
 }
