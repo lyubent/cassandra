@@ -44,6 +44,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import org.apache.cassandra.cql3.QueryRecorder;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Level;
 import org.slf4j.Logger;
@@ -3826,9 +3827,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * The frequency represents every nth query to be recorded, if the value 1 is supplied,
      * that means every query will be recorded, 2 means every second query will be recorded etc.
      */
-    public void enableQueryRecording(int frequency)
+    public void enableQueryRecording(int frequency) throws IOException
     {
+        QueryRecorder queryRecorder = new QueryRecorder();
+        queryRecorder.create();
         queryRecordingFrequency = frequency;
+        logger.info("Enabled query logging for every 1/{} query.", frequency);
     }
 
     public Integer getQueryRecordingFrequency()

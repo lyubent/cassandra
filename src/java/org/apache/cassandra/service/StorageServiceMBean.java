@@ -508,5 +508,5 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void setTombstoneFailureThreshold(int tombstoneDebugThreshold);
 
     /** Set the frequency, int represents every nth query to be recorded */
-    public void enableQueryRecording(int frequency);
+    public void enableQueryRecording(int frequency) throws IOException;
 }

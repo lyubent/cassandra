@@ -51,6 +51,7 @@ public class QueryProcessor
     private static final MemoryMeter meter = new MemoryMeter();
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
     private static final int MAX_CACHE_PREPARED_COUNT = 10000;
+    private static final QueryRecorder queryRecorder = new QueryRecorder();
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
     {
@@ -175,6 +176,7 @@ public class QueryProcessor
             throw new InvalidRequestException("Invalid empty value for clustering column of COMPACT TABLE");
     }
 
+    static int queryCounter = 0;
     private static ResultMessage processStatement(CQLStatement statement,
                                                   QueryState queryState,
                                                   QueryOptions options,
@@ -182,7 +184,21 @@ public class QueryProcessor
     throws RequestExecutionException, RequestValidationException
     {
         if (StorageService.instance.getQueryRecordingFrequency() != null)
-            logger.debug("Query executed {}", queryString);
+        {
+            // check if we're at the n'th query, if so record it to the query log
+            if (queryCounter == StorageService.instance.getQueryRecordingFrequency() - 1)
+            {
+                queryRecorder.append(queryString);
+                logger.debug("Recorded query {}", queryString);
+                queryCounter = 0;
+            }
+            // otherwise increment the query counter
+            else
+            {
+                queryCounter++;
+                logger.debug("Executed (but not recorded) query {}", queryString);
+            }
+        }
 
         logger.trace("Process {} @CL.{}", statement, options.getConsistency());
         ClientState clientState = queryState.getClientState();
