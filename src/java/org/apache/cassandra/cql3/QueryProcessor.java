@@ -52,6 +52,7 @@ public class QueryProcessor
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
     private static final int MAX_CACHE_PREPARED_COUNT = 10000;
     private static final QueryRecorder queryRecorder = new QueryRecorder();
+    private static int queryCounter = 0;
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
     {
@@ -176,7 +177,6 @@ public class QueryProcessor
             throw new InvalidRequestException("Invalid empty value for clustering column of COMPACT TABLE");
     }
 
-    static int queryCounter = 0;
     private static ResultMessage processStatement(CQLStatement statement,
                                                   QueryState queryState,
                                                   QueryOptions options,

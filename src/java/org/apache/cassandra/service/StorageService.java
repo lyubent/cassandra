@@ -3823,7 +3823,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
     }
 
-    /*
+    /**
      * The frequency represents every nth query to be recorded, if the value 1 is supplied,
      * that means every query will be recorded, 2 means every second query will be recorded etc.
      */
@@ -3832,7 +3832,17 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         QueryRecorder queryRecorder = new QueryRecorder();
         queryRecorder.create();
         queryRecordingFrequency = frequency;
-        logger.info("Enabled query logging for every 1/{} query.", frequency);
+        logger.info("Enabled query logging for 1/{} queries.", frequency);
+    }
+
+    /**
+     * Used by the workload replay tool to execute queries from the query log
+     */
+    // todo Temp for testing, this will be called by the tool built for workload replaying
+    public void runWorkload() throws IOException
+    {
+        QueryRecorder queryRecorder = new QueryRecorder();
+        queryRecorder.run();
     }
 
     public Integer getQueryRecordingFrequency()

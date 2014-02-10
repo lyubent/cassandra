@@ -509,4 +509,7 @@ public interface StorageServiceMBean extends NotificationEmitter
 
     /** Set the frequency, int represents every nth query to be recorded */
     public void enableQueryRecording(int frequency) throws IOException;
+
+    /** Used by the workload replay tool to execute queries from the query log */
+    public void runWorkload() throws IOException;
 }
