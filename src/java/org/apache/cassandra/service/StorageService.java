@@ -3842,7 +3842,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void runWorkload() throws IOException
     {
         QueryRecorder queryRecorder = new QueryRecorder();
-        queryRecorder.run();
+        queryRecorder.replay();
     }
 
     public Integer getQueryRecordingFrequency()

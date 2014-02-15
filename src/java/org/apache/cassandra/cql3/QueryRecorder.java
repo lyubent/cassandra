@@ -40,8 +40,9 @@ import org.apache.cassandra.utils.WrappedRunnable;
 public class QueryRecorder
 {
     private static final Logger logger = LoggerFactory.getLogger(QueryRecorder.class);
-    private static final String queryLogFileName = "query.log";
-    public static final File queryLog = new File(DatabaseDescriptor.getCommitLogLocation(), queryLogFileName);
+    private static final String queryLogFileName = "QueryLog";
+    private static final String queryLogExtension = ".log";
+    private static final File queryLog = new File(DatabaseDescriptor.getCommitLogLocation(), queryLogFileName + queryLogExtension);
 
     public QueryRecorder()
     {}
@@ -70,6 +71,13 @@ public class QueryRecorder
     {
         try
         {
+            // todo seems silly to check the log size every append, probably want some kind of counter that checks
+            // todo every nth query with the magic number being 5k (37859 appends = 4 MB with a 19 char statement)
+            // todo the 4MB limit might be a setting in cassandra.yaml / via jmx function
+            // limit log to 4MB
+            if(queryLog.length() > (4 * 1024 * 1024))
+                rotateLog(queryLog);
+
             Files.write(queryLog.toPath(),
                         Arrays.asList(FBUtilities.timestampMicros() + " " + queryString),
                         Charsets.UTF_8,
@@ -114,11 +122,11 @@ public class QueryRecorder
     /**
      * Executes queries against a cluster
      *
-     * @param queries A list of pairs with left being the right being the timestamp and queryString
      * @throws IOException
      */
-    public void replay(final List<Pair<Long, String>> queries) throws IOException
+    public void replay() throws IOException
     {
+        final List<Pair<Long, String>> queries = read();
         Runnable runnable = new WrappedRunnable()
         {
             public void runMayThrow() throws IOException
@@ -142,9 +150,18 @@ public class QueryRecorder
         runnable.run();
     }
 
-    public void run() throws IOException
+    /**
+     * Rotates logs by creating a new query.log and rotating and renaming the full log to query-timestamp_of_archiving.log
+     *
+     * @param fullLog - The filled up log to be rotated
+     * @throws IOException
+     */
+    public void rotateLog(File fullLog) throws IOException
     {
-        List<Pair<Long, String>> queries = read();
-        replay(queries);
+        // rename the old log
+        fullLog.renameTo(new File(DatabaseDescriptor.getCommitLogLocation(),
+                                  queryLogFileName + "-" + System.currentTimeMillis() + queryLogExtension));
+        // create new log
+        create();
     }
 }

@@ -20,6 +20,7 @@ package org.apache.cassandra.cql3;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.primitives.Ints;
 
@@ -27,6 +28,7 @@ import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
 import org.antlr.runtime.*;
 import org.apache.cassandra.service.StorageService;
+import org.apache.commons.lang3.StringUtils;
 import org.github.jamm.MemoryMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +54,7 @@ public class QueryProcessor
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
     private static final int MAX_CACHE_PREPARED_COUNT = 10000;
     private static final QueryRecorder queryRecorder = new QueryRecorder();
-    private static int queryCounter = 0;
+    private static AtomicInteger querylogCounter = new AtomicInteger(0);
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
     {
@@ -183,22 +185,8 @@ public class QueryProcessor
                                                   String queryString)
     throws RequestExecutionException, RequestValidationException
     {
-        if (StorageService.instance.getQueryRecordingFrequency() != null)
-        {
-            // check if we're at the n'th query, if so record it to the query log
-            if (queryCounter == StorageService.instance.getQueryRecordingFrequency() - 1)
-            {
-                queryRecorder.append(queryString);
-                logger.debug("Recorded query {}", queryString);
-                queryCounter = 0;
-            }
-            // otherwise increment the query counter
-            else
-            {
-                queryCounter++;
-                logger.debug("Executed (but not recorded) query {}", queryString);
-            }
-        }
+        // check if workload recording is enabled
+        maybeLogQuery(queryString, queryState.getClientState().getRawKeyspace());
 
         logger.trace("Process {} @CL.{}", statement, options.getConsistency());
         ClientState clientState = queryState.getClientState();
@@ -464,5 +452,29 @@ public class QueryProcessor
         return key instanceof MeasurableForPreparedCache
              ? ((MeasurableForPreparedCache)key).measureForPreparedCache(meter)
              : meter.measureDeep(key);
+    }
+
+    private static void maybeLogQuery(String queryString, String keyspace)
+    {
+        Integer frequency = StorageService.instance.getQueryRecordingFrequency();
+
+        // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
+        // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
+        // a non system table, e.g. customKeyspace.system.Idx1
+        if (frequency != null &&
+            !(StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")))
+        {
+            // when at the nth query, append query to the log
+            if (querylogCounter.get() == frequency - 1)
+            {
+                queryRecorder.append(queryString);
+                querylogCounter.set(0);
+                logger.debug("Recorded query {}", queryString);
+            }
+            else
+            {
+                querylogCounter.incrementAndGet();
+            }
+        }
     }
 }
