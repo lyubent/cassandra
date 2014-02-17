@@ -209,6 +209,9 @@ public class Config
     public volatile Long index_summary_capacity_in_mb;
     public volatile int index_summary_resize_interval_in_minutes = 60;
 
+    private static final CsvPreference STANDARD_SURROUNDING_SPACES_NEED_QUOTES = new CsvPreference.Builder(CsvPreference.STANDARD_PREFERENCE)
+                                                                                                  .surroundingSpacesNeedQuotes(true).build();
+
     public static boolean getOutboundBindAny()
     {
         return outboundBindAny;
@@ -254,8 +257,6 @@ public class Config
             }
         }
     }
-
-    private static final CsvPreference STANDARD_SURROUNDING_SPACES_NEED_QUOTES = new CsvPreference.Builder(CsvPreference.STANDARD_PREFERENCE).surroundingSpacesNeedQuotes(true).build();
 
     public static List<String> parseHintedHandoffEnabledDCs(final String dcNames) throws IOException
     {
