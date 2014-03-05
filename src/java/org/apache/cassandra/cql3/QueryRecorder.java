@@ -20,6 +20,7 @@ package org.apache.cassandra.cql3;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -52,7 +53,7 @@ public class QueryRecorder
      *
      * @throws IOException
      */
-    public void create() throws IOException
+    public static void create() throws IOException
     {
         if (!queryLog.exists())
         {
@@ -67,7 +68,7 @@ public class QueryRecorder
      * @param queryString Query to be recorded to the query log
      */
     // todo, append until file is 4MB and then rotate the logs.
-    public void append(String queryString)
+    public static void append(String queryString)
     {
         try
         {
@@ -92,71 +93,12 @@ public class QueryRecorder
     }
 
     /**
-     * Reads the log to be replayed
-     *
-     * @return List<Pair<Long, String>> A list of pairs containing L:timestamp R:queryString
-     * @throws IOException
-     */
-    // todo Make it so we replay from <node_ip> / queryLog.toPath() to <cluster>
-    public List<Pair<Long, String>> read() throws IOException
-    {
-        // we want the querylog path to be of node a, not this.node
-        List<String> queriesFromLog = Files.readAllLines(queryLog.toPath(), Charsets.UTF_8);
-        List<Pair<Long, String>> queries = new ArrayList<>(queriesFromLog.size());
-
-        for (String query : queriesFromLog)
-        {
-            // todo needs to be read line by line or fragmented to n lines
-            // todo reading the whole thing = bad memory usage
-
-            // Split the log line by the first space i.e. split the query and the timestamp
-            String [] timestampAndQuery = query.split(" ", 2);
-            // We are expecting each line to contain a queryString and a timestamp
-            assert timestampAndQuery.length == 2;
-            queries.add(Pair.create(Long.parseLong(timestampAndQuery[0]), timestampAndQuery[1]));
-        }
-
-        return queries;
-    }
-
-    /**
-     * Executes queries against a cluster
-     *
-     * @throws IOException
-     */
-    public void replay() throws IOException
-    {
-        final List<Pair<Long, String>> queries = read();
-        Runnable runnable = new WrappedRunnable()
-        {
-            public void runMayThrow() throws IOException
-            {
-                Long previousTimestamp = 0L;
-                for (Pair<Long, String> query : queries)
-                {
-                    Long gapBetweenQueryExecutionTime = query.left - previousTimestamp;
-                    // todo this could be a setting in the workload replay tool, <max_wait_time> or <timeout>
-                    // set max wait time to 10 sec
-                    if(gapBetweenQueryExecutionTime > 10000000)
-                        gapBetweenQueryExecutionTime = 10000000L;
-                    previousTimestamp = query.left;
-
-                    logger.debug("Processing {} with a delay of {}", query.right, gapBetweenQueryExecutionTime);
-                    QueryProcessor.processInternal(query.right);
-                }
-            }
-        };
-        runnable = new Thread(runnable, "WORKLOAD-REPLAYER");
-        runnable.run();
-    }
-
-    /**
      * Rotates logs by creating a new query.log and rotating and renaming the full log to query-timestamp_of_archiving.log
      *
      * @param fullLog - The filled up log to be rotated
      * @throws IOException
      */
-    public void rotateLog(File fullLog) throws IOException
+    public static void rotateLog(File fullLog) throws IOException
     {
         // rename the old log
         fullLog.renameTo(new File(DatabaseDescriptor.getCommitLogLocation(),

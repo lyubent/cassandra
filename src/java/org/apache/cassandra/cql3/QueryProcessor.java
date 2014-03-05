@@ -186,7 +186,7 @@ public class QueryProcessor
     throws RequestExecutionException, RequestValidationException
     {
         // check if workload recording is enabled
-        maybeLogQuery(queryString, queryState.getClientState().getRawKeyspace());
+        maybeLogQuery(queryString, queryState.getClientState());
 
         logger.trace("Process {} @CL.{}", statement, options.getConsistency());
         ClientState clientState = queryState.getClientState();
@@ -454,15 +454,14 @@ public class QueryProcessor
              : meter.measureDeep(key);
     }
 
-    private static void maybeLogQuery(String queryString, String keyspace)
+    private static void maybeLogQuery(String queryString, ClientState client)
     {
         Integer frequency = StorageService.instance.getQueryRecordingFrequency();
 
         // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
         // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
         // a non system table, e.g. customKeyspace.system.Idx1
-        if (frequency != null &&
-            !(StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")))
+        if (frequency != null && !isSystemOrTraceKS(client, queryString))
         {
             // when at the nth query, append query to the log
             if (querylogCounter.get() == frequency - 1)
@@ -476,5 +475,15 @@ public class QueryProcessor
                 querylogCounter.incrementAndGet();
             }
         }
+    }
+
+    private static boolean isSystemOrTraceKS(ClientState client, String queryString)
+    {
+        System.out.println("\t\t:: " + queryString);
+        String keyspace = client.getRawKeyspace();
+        // potential bug might be if we use system but then issue "INSERT INTO Keyspace1 (col1, col2) VALUES (...);
+        // this will check the client state and see that the keyspace is not null and the query will be ignored
+        return keyspace == null ? queryString.contains(" " + Tracing.TRACE_KS + ".") || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")
+                                : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
     }
 }

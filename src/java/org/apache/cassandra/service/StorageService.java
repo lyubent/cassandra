@@ -3835,16 +3835,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
         logger.info("Enabled query logging for 1/{} queries.", frequency);
     }
 
-    /**
-     * Used by the workload replay tool to execute queries from the query log
-     */
-    // todo Temp for testing, this will be called by the tool built for workload replaying
-    public void runWorkload() throws IOException
-    {
-        QueryRecorder queryRecorder = new QueryRecorder();
-        queryRecorder.replay();
-    }
-
     public Integer getQueryRecordingFrequency()
     {
         return queryRecordingFrequency;
