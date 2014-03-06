@@ -92,9 +92,6 @@ public class WorkloadReplayer
 
         for (String query : queriesFromLog)
         {
-            // todo needs to be read line by line or fragmented to n lines
-            // todo reading the whole thing = bad memory usage
-
             // Split the log line by the first space i.e. split the query and the timestamp
             String [] timestampAndQuery = query.split(" ", 2);
             // We are expecting each line to contain a queryString and a timestamp
@@ -128,7 +125,7 @@ public class WorkloadReplayer
 
                     out.println(String.format("Processing %s with a delay of %d", query.right, gapBetweenQueryExecutionTime));
 
-                    // this will not work... need to use java driver here.
+                    // todo this will not work... need to use java driver here.
                     QueryProcessor.processInternal(query.right);
                 }
             }
