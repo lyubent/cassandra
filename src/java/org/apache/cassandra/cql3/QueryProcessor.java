@@ -20,9 +20,10 @@ package org.apache.cassandra.cql3;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.primitives.Ints;
-
+import org.apache.commons.lang3.StringUtils;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
 import org.antlr.runtime.*;
@@ -38,6 +39,7 @@ import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MD5Digest;
@@ -50,6 +52,8 @@ public class QueryProcessor
     private static final Logger logger = LoggerFactory.getLogger(QueryProcessor.class);
     private static final MemoryMeter meter = new MemoryMeter().withGuessing(MemoryMeter.Guess.FALLBACK_BEST);
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
+    private static final QueryRecorder queryRecorder = new QueryRecorder();
+    private static AtomicInteger querylogCounter = new AtomicInteger(0);
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
     {
@@ -171,6 +175,9 @@ public class QueryProcessor
                                                   String queryString)
     throws RequestExecutionException, RequestValidationException
     {
+        // check if workload recording is enabled
+        maybeLogQuery(queryString, queryState.getClientState());
+
         logger.trace("Process {} @CL.{}", statement, options.getConsistency());
         ClientState clientState = queryState.getClientState();
         statement.checkAccess(clientState);
@@ -437,5 +444,45 @@ public class QueryProcessor
         return key instanceof MeasurableForPreparedCache
              ? ((MeasurableForPreparedCache)key).measureForPreparedCache(meter)
              : meter.measureDeep(key);
+    }
+
+
+    /**
+     * Checks if query should be logged based on whether it has been enabled
+     * via JMX and if the query is on a non-system keyspace.
+     * @param queryString
+     * @param client
+     */
+    private static void maybeLogQuery(String queryString, ClientState client)
+    {
+        Integer frequency = StorageService.instance.getQueryRecordingFrequency();
+
+        // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
+        // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
+        // a non system table, e.g. customKeyspace.system.Idx1
+        if (frequency != null && !isSystemOrTraceKS(client, queryString))
+        {
+            // when at the nth query, append query to the log
+            if (querylogCounter.get() == frequency - 1)
+            {
+                queryRecorder.append(queryString);
+                querylogCounter.set(0);
+                logger.debug("Recorded query {}", queryString);
+            }
+            else
+            {
+                querylogCounter.incrementAndGet();
+            }
+        }
+    }
+
+    private static boolean isSystemOrTraceKS(ClientState client, String queryString)
+    {
+        System.out.println("\t\t:: " + queryString);
+        String keyspace = client.getRawKeyspace();
+        // potential bug might be if we use system but then issue "INSERT INTO Keyspace1 (col1, col2) VALUES (...);
+        // this will check the client state and see that the keyspace is not null and the query will be ignored
+        return keyspace == null ? queryString.contains(" " + Tracing.TRACE_KS + ".") || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")
+                : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
     }
 }

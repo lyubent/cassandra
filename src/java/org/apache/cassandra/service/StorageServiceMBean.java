@@ -526,4 +526,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int getTombstoneFailureThreshold();
     /** Sets the threshold for abandoning queries with many tombstones */
     public void setTombstoneFailureThreshold(int tombstoneDebugThreshold);
+
+    /** Set the frequency, int represents every nth query to be recorded */
+    public void enableQueryRecording(int frequency) throws IOException;
 }
