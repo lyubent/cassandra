@@ -23,14 +23,21 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.google.common.base.Charsets;
 
-import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.auth.IAuthenticator;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.thrift.*;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TTransport;
 
 public class WorkloadReplayer
 {
@@ -59,7 +66,16 @@ public class WorkloadReplayer
         queries = log.isDirectory() ? read(logPath)
                 : read(logPath, true);
 
-        replay(queries);
+        try
+        {
+            replay(queries);
+        }
+        catch (Exception ex)
+        {
+            throw new RuntimeException(ex);
+        }
+
+        // try { executeQuery(null, 0); } catch (Exception ex) { ex.printStackTrace(); }
     }
 
     public static List<Pair<Long, String>> read(String logDirectory, boolean readAllLogs) throws IOException
@@ -106,14 +122,16 @@ public class WorkloadReplayer
     /**
      * Executes queries against a cluster
      *
-     * @throws IOException
+     * @throws Exception
      */
-    public static void replay(final List<Pair<Long, String>> queries) throws IOException
+    public static void replay(final List<Pair<Long, String>> queries) throws Exception
     {
         Runnable runnable = new WrappedRunnable()
         {
-            public void runMayThrow() throws IOException
+            public void runMayThrow() throws Exception
             {
+                // todo hardcoded client, need to streamline.
+                Cassandra.Client client = createThriftClient("localhost", 9160, "", "");
                 Long previousTimestamp = 0L;
                 for (Pair<Long, String> query : queries)
                 {
@@ -124,14 +142,43 @@ public class WorkloadReplayer
                         gapBetweenQueryExecutionTime = 10000000L;
                     previousTimestamp = query.left;
 
+                    // todo still debug...
                     out.println(String.format("Processing %s with a delay of %d", query.right, gapBetweenQueryExecutionTime));
 
-                    // todo this will not work... need to use java driver here.
-                    QueryProcessor.processInternal(query.right);
+                    // todo possibly swap to use java driver here.
+                    executeQuery(query.right, previousTimestamp, client);
                 }
             }
         };
         runnable = new Thread(runnable, "WORKLOAD-REPLAYER");
         runnable.run();
+    }
+
+    /**
+     * Execute a cql3 query via thrift.
+     * @param query CQL3 query string
+     * @param queryGap Gap between current and previous query
+     * @throws Exception
+     */
+    private static void executeQuery(String query, long queryGap, Cassandra.Client client) throws Exception
+    {
+        client.execute_cql3_query(ByteBufferUtil.bytes(query), Compression.NONE, ConsistencyLevel.ANY);
+    }
+
+    private static Cassandra.Client createThriftClient(String host, int port, String user, String passwd) throws Exception
+    {
+        ITransportFactory transportFactory = new TFramedTransportFactory();
+        TTransport trans = transportFactory.openTransport(host, port);
+        TProtocol protocol = new TBinaryProtocol(trans);
+        Cassandra.Client client = new Cassandra.Client(protocol);
+        if (user != null && passwd != null)
+        {
+            Map<String, String> credentials = new HashMap<>();
+            credentials.put(IAuthenticator.USERNAME_KEY, user);
+            credentials.put(IAuthenticator.PASSWORD_KEY, passwd);
+            AuthenticationRequest authenticationRequest = new AuthenticationRequest(credentials);
+            client.login(authenticationRequest);
+        }
+        return client;
     }
 }
