@@ -172,7 +172,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private volatile boolean joined = false;
 
     /* Used for keeping track of whether QueryProcessor is recording queries */
-    private Integer queryRecordingFrequency = null;
+    private QueryRecorder queryRecorder = null;
 
     /* the probability for tracing any particular request, 0 disables tracing and 1 enables for all */
     private double tracingProbability = 0.0;
@@ -3941,16 +3941,15 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
      * The frequency represents every nth query to be recorded, if the value 1 is supplied,
      * that means every query will be recorded, 2 means every second query will be recorded etc.
      */
-    public void enableQueryRecording(int frequency) throws IOException
+    public void enableQueryRecording(int frequency, String logDirectory) throws IOException
     {
-        QueryRecorder queryRecorder = new QueryRecorder();
+        queryRecorder = new QueryRecorder(logDirectory, frequency);
         queryRecorder.create();
-        queryRecordingFrequency = frequency;
         logger.info("Enabled query logging for 1/{} queries.", frequency);
     }
 
-    public Integer getQueryRecordingFrequency()
+    public QueryRecorder getQueryRecorder()
     {
-        return queryRecordingFrequency;
+        return queryRecorder;
     }
 }

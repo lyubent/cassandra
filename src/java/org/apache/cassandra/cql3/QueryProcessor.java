@@ -52,7 +52,6 @@ public class QueryProcessor
     private static final Logger logger = LoggerFactory.getLogger(QueryProcessor.class);
     private static final MemoryMeter meter = new MemoryMeter().withGuessing(MemoryMeter.Guess.FALLBACK_BEST);
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
-    private static final QueryRecorder queryRecorder = new QueryRecorder();
     private static AtomicInteger querylogCounter = new AtomicInteger(0);
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
@@ -455,7 +454,11 @@ public class QueryProcessor
      */
     private static void maybeLogQuery(String queryString, ClientState client)
     {
-        Integer frequency = StorageService.instance.getQueryRecordingFrequency();
+        QueryRecorder queryRecorder = StorageService.instance.getQueryRecorder();
+        // dont log query if SS#queryRecorder is null as the logging hasn't yet been enabled.
+        if (queryRecorder == null)
+            return;
+        Integer frequency = queryRecorder.getFrequency();
 
         // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
         // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
@@ -478,11 +481,10 @@ public class QueryProcessor
 
     private static boolean isSystemOrTraceKS(ClientState client, String queryString)
     {
-        System.out.println("\t\t:: " + queryString);
         String keyspace = client.getRawKeyspace();
         // potential bug might be if we use system but then issue "INSERT INTO Keyspace1 (col1, col2) VALUES (...);
         // this will check the client state and see that the keyspace is not null and the query will be ignored
         return keyspace == null ? queryString.contains(" " + Tracing.TRACE_KS + ".") || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")
-                : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
+                                : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
     }
 }

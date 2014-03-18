@@ -238,6 +238,12 @@ public class Keyspace
         Directories.clearSnapshot(snapshotName, snapshotDirs);
     }
 
+    public static void clearSnapshot(String snapshotName, String keyspaceName)
+    {
+        List<File> snapshotDirs = Directories.getKSChildDirectories(keyspaceName);
+        Directories.clearSnapshot(snapshotName, snapshotDirs);
+    }
+
     /**
      * @return A list of open SSTableReaders
      */

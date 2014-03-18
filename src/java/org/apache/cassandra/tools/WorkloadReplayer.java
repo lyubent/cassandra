@@ -47,14 +47,12 @@ public class WorkloadReplayer
     {
         if (args.length == 0)
         {
-            out.println("This command requires the directory of logs / individual logfile and a comma separated list of Cassandra server IPs for replay!");
-            out.println("Usage: workloadreplayer <querylog> <nodeipcsv>");
+            out.println("This command requires the directory of logs / individual logfile for replay!");
+            out.println("Usage: workloadreplayer <querylog>");
             System.exit(1);
         }
 
         String logPath = args[0];
-        String [] nodeIPs = args[1].split(",");
-
         File log = new File(logPath);
 
         // verify we can access the query log(s)
@@ -62,9 +60,7 @@ public class WorkloadReplayer
             throw new InvalidRequestException(String.format("QueryLog %s doesn't exist or you don't have READ permissions.", logPath));
 
         List<Pair<Long, String>> queries;
-
-        queries = log.isDirectory() ? read(logPath)
-                : read(logPath, true);
+        queries = log.isDirectory() ? read(log, true) : read(log);
 
         try
         {
@@ -78,17 +74,19 @@ public class WorkloadReplayer
         // try { executeQuery(null, 0); } catch (Exception ex) { ex.printStackTrace(); }
     }
 
-    public static List<Pair<Long, String>> read(String logDirectory, boolean readAllLogs) throws IOException
+    public static List<Pair<Long, String>> read(File logDirectory, boolean readAllLogs) throws IOException
     {
         List<Pair<Long, String>> queries = new ArrayList<>();
-        File logDir = new File(logDirectory);
-        String [] logPaths;
+        File [] logPaths;
 
-        if (logDir.exists())
+        if (logDirectory.exists())
         {
-            logPaths = new File("").list();
-            for (String logPath : logPaths)
+            logPaths = logDirectory.listFiles();
+            for (File logPath : logPaths)
+            {
+                System.out.println(logPath);
                 queries.addAll(read(logPath));
+            }
         }
 
         return queries;
@@ -100,11 +98,10 @@ public class WorkloadReplayer
      * @return List<Pair<Long, String>> A list of pairs containing L:timestamp R:queryString
      * @throws IOException
      */
-    // todo Make it so we replay from <node_ip> / queryLog.toPath() to <cluster>
-    public static List<Pair<Long, String>> read(String logPath) throws IOException
+    public static List<Pair<Long, String>> read(File logPath) throws IOException
     {
         // we want the querylog path to be of node a, not this.node
-        List<String> queriesFromLog = Files.readAllLines(Paths.get(logPath), Charsets.UTF_8);
+        List<String> queriesFromLog = Files.readAllLines(logPath.getAbsoluteFile().toPath(), Charsets.UTF_8);
         List<Pair<Long, String>> queries = new ArrayList<>(queriesFromLog.size());
 
         for (String query : queriesFromLog)

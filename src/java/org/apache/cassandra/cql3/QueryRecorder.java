@@ -41,21 +41,36 @@ import org.apache.cassandra.utils.WrappedRunnable;
  */
 public class QueryRecorder
 {
-    private static final Logger logger = LoggerFactory.getLogger(QueryRecorder.class);
-    private static final String queryLogFileName = "QueryLog";
-    private static final String queryLogExtension = ".log";
-    private static final File queryLog = new File(DatabaseDescriptor.getCommitLogLocation(), queryLogFileName + queryLogExtension);
+    private final Logger logger = LoggerFactory.getLogger(QueryRecorder.class);
+    private final String queryLogFileName = "QueryLog";
+    private final String queryLogExtension = ".log";
+    private final Integer frequency;
+    private final File queryLogDirectory;
+    private final File queryLog;
 
-    public QueryRecorder()
-    {}
+    public QueryRecorder(String queryLogDirectory, Integer frequency)
+    {
+        this.frequency = frequency;
+        this.queryLogDirectory = new File(queryLogDirectory);
+        this.queryLog = new File(queryLogDirectory, queryLogFileName + queryLogExtension);
+    }
 
     /**
      * Creates the query log file
      *
      * @throws IOException
      */
-    public static void create() throws IOException
+    public void create() throws IOException
     {
+        System.out.println(queryLogDirectory);
+        System.out.println(queryLog);
+
+        if (!queryLogDirectory.isDirectory())
+        {
+            System.out.println("made dir");
+            Files.createDirectory(queryLogDirectory.toPath());
+            logger.info("Created query log directory {}", queryLogDirectory.getPath());
+        }
         if (!queryLog.exists())
         {
             Files.createFile(queryLog.toPath());
@@ -69,7 +84,7 @@ public class QueryRecorder
      * @param queryString Query to be recorded to the query log
      */
     // todo, append until file is 4MB and then rotate the logs.
-    public static void append(String queryString)
+    public void append(String queryString)
     {
         try
         {
@@ -100,12 +115,17 @@ public class QueryRecorder
      * @param fullLog - The filled up log to be rotated
      * @throws IOException
      */
-    public static void rotateLog(File fullLog) throws IOException
+    public void rotateLog(File fullLog) throws IOException
     {
         // rename the old log
         fullLog.renameTo(new File(DatabaseDescriptor.getCommitLogLocation(),
         queryLogFileName + "-" + System.currentTimeMillis() + queryLogExtension));
         // create new log
         create();
+    }
+
+    public Integer getFrequency()
+    {
+        return frequency;
     }
 }
