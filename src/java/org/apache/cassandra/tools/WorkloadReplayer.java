@@ -21,7 +21,6 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -35,22 +34,51 @@ import org.apache.cassandra.thrift.*;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.commons.cli.*;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.transport.TTransport;
 
 public class WorkloadReplayer
 {
-    private static PrintStream out = System.out;
+    private static final Options options = new Options();
+    private static final PrintStream out = System.out;
 
-    public static void main(String [] args) throws  IOException, InvalidRequestException
+    private static final int DEFAULT_THRIFT_PORT = 9160;
+    private static final long DEFAULT_TIMEOUT = 10000000;
+    private static final String DEFAULT_HOST = "localhost";
+
+    static
+    {
+        options.addOption("h", "host", true,  String.format("hostname or IP address for replay (Default: %s)", DEFAULT_HOST));
+        options.addOption("p", "port", true,  String.format("thrift port number (Default: %d)", DEFAULT_THRIFT_PORT));
+        options.addOption("u", "username", true,  "Username");
+        options.addOption("pw", "password", true,  "Password");
+        options.addOption("w", "wait", false,  "wait the diffrence between each query");
+        options.addOption("t", "timeout", true,  "Timeout limit for period between query execution. Timeout option should only be supplied when using -w");
+        options.addOption("H", "help", false, "Print help information");
+    }
+
+    public static void main(String [] args) throws ParseException, IOException, InvalidRequestException
     {
         if (args.length == 0)
         {
             out.println("This command requires the directory of logs / individual logfile for replay!");
             out.println("Usage: workloadreplayer <querylog>");
+            printWorkloadReplayerUsage(out);
             System.exit(1);
         }
+
+        // todo Review this initialization
+        // todo seems like lots of boilerplate
+        CommandLineParser parser = new PosixParser();
+        CommandLine cmd =  parser.parse(options, args);
+
+        String hostName = (cmd.getOptionValue("host") != null) ? cmd.getOptionValue("host") : DEFAULT_HOST;
+        int port = (cmd.getOptionValue("port") != null) ? Integer.parseInt(cmd.getOptionValue("port")) : DEFAULT_THRIFT_PORT;
+        long timeout = (cmd.getOptionValue("timeout") != null) ? Long.parseLong(cmd.getOptionValue("timeout")) : DEFAULT_TIMEOUT;
+        String username = cmd.getOptionValue("username");
+        String password = cmd.getOptionValue("password");
 
         String logPath = args[0];
         File log = new File(logPath);
@@ -64,14 +92,13 @@ public class WorkloadReplayer
 
         try
         {
-            replay(queries);
+            Cassandra.Client client = createThriftClient(hostName, port, username, password);
+            replay(client, queries, timeout);
         }
         catch (Exception ex)
         {
             throw new RuntimeException(ex);
         }
-
-        // try { executeQuery(null, 0); } catch (Exception ex) { ex.printStackTrace(); }
     }
 
     public static List<Pair<Long, String>> read(File logDirectory, boolean readAllLogs) throws IOException
@@ -85,6 +112,9 @@ public class WorkloadReplayer
             for (File logPath : logPaths)
             {
                 System.out.println(logPath);
+                // todo Each logfile should maybe be it's own thread
+                // todo executing asych acn lead to concurrency problems, e.g. trying to insert into a table before it's created
+                // todo but executing serially means that the replay wont be realistic
                 queries.addAll(read(logPath));
             }
         }
@@ -121,22 +151,20 @@ public class WorkloadReplayer
      *
      * @throws Exception
      */
-    public static void replay(final List<Pair<Long, String>> queries) throws Exception
+    public static void replay(final Cassandra.Client client, final List<Pair<Long, String>> queries, final long timeout)
     {
         Runnable runnable = new WrappedRunnable()
         {
             public void runMayThrow() throws Exception
             {
-                // todo hardcoded client, need to streamline.
-                Cassandra.Client client = createThriftClient("localhost", 9160, "", "");
                 Long previousTimestamp = 0L;
                 for (Pair<Long, String> query : queries)
                 {
                     Long gapBetweenQueryExecutionTime = query.left - previousTimestamp;
                     // todo this could be a setting in the workload replay tool, <max_wait_time> or <timeout>
                     // set max wait time to 10 sec
-                    if(gapBetweenQueryExecutionTime > 10000000)
-                        gapBetweenQueryExecutionTime = 10000000L;
+                    if(gapBetweenQueryExecutionTime > timeout)
+                        gapBetweenQueryExecutionTime = timeout;
                     previousTimestamp = query.left;
 
                     // todo still debug...
@@ -177,5 +205,10 @@ public class WorkloadReplayer
             client.login(authenticationRequest);
         }
         return client;
+    }
+
+    private static void printWorkloadReplayerUsage(PrintStream out)
+    {
+        // todo...
     }
 }
