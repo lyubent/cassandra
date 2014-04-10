@@ -58,6 +58,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.cql3.QueryRecorder;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.db.compaction.CompactionManager;
@@ -173,6 +174,9 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     private boolean isClientMode;
     private boolean initialized;
     private volatile boolean joined = false;
+
+    /* Used for keeping track of whether QueryProcessor is recording queries */
+    private QueryRecorder queryRecorder = null;
 
     /* the probability for tracing any particular request, 0 disables tracing and 1 enables for all */
     private double tracingProbability = 0.0;
@@ -3980,5 +3984,31 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setTombstoneFailureThreshold(int threshold)
     {
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
+    }
+
+    /**
+     * The frequency represents every nth query to be recorded, if the value 1 is supplied,
+     * that means every query will be recorded, 2 means every second query will be recorded etc.
+     * @param logLimit Limit of the QueryLog.log file used for storing queries in MB
+     * @param frequency Record every n'th query, e.g. 2 means every 1/2 queries will be recorded.
+     * @param logDirectory Directory to store the log file(s).
+     * @throws IOException
+     */
+    public void enableQueryRecording(int logLimit, int frequency, String logDirectory) throws IOException
+    {
+        queryRecorder = new QueryRecorder(logLimit, frequency, logDirectory);
+        queryRecorder.create();
+        logger.info("Enabled query logging for 1/{} queries using log [{}] with limit of {} MB.", frequency, logDirectory, logLimit);
+    }
+
+    public void disableQueryRecording()
+    {
+        queryRecorder = null;
+        logger.info("Disabled query logging.");
+    }
+
+    public QueryRecorder getQueryRecorder()
+    {
+        return queryRecorder;
     }
 }

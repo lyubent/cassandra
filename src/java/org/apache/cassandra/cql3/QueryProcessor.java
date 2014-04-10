@@ -19,9 +19,10 @@ package org.apache.cassandra.cql3;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.commons.lang3.StringUtils;
 import com.google.common.primitives.Ints;
-
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
 import org.antlr.runtime.*;
@@ -30,14 +31,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.apache.cassandra.cql3.statements.*;
-import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.ThriftClientState;
 import org.apache.cassandra.tracing.Tracing;
+import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MD5Digest;
 import org.apache.cassandra.utils.SemanticVersion;
@@ -51,6 +53,7 @@ public class QueryProcessor implements QueryHandler
     private static final Logger logger = LoggerFactory.getLogger(QueryProcessor.class);
     private static final MemoryMeter meter = new MemoryMeter().withGuessing(MemoryMeter.Guess.FALLBACK_BEST);
     private static final long MAX_CACHE_PREPARED_MEMORY = Runtime.getRuntime().maxMemory() / 256;
+    private static volatile AtomicInteger querylogCounter = new AtomicInteger(0);
 
     private static EntryWeigher<MD5Digest, CQLStatement> cqlMemoryUsageWeigher = new EntryWeigher<MD5Digest, CQLStatement>()
     {
@@ -72,6 +75,9 @@ public class QueryProcessor implements QueryHandler
 
     private static final ConcurrentLinkedHashMap<MD5Digest, CQLStatement> preparedStatements;
     private static final ConcurrentLinkedHashMap<Integer, CQLStatement> thriftPreparedStatements;
+
+    // Used to lock counter incrementation for recording every n'th query.
+    private static final Object atomicCounterLock = new Object();
 
     static
     {
@@ -159,6 +165,9 @@ public class QueryProcessor implements QueryHandler
     public ResultMessage process(String queryString, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
+        // check if workload recording is enabled
+        maybeLogQuery(queryString, queryState.getClientState());
+
         CQLStatement prepared = getStatement(queryString, queryState.getClientState()).statement;
         if (prepared.getBoundTerms() != options.getValues().size())
             throw new InvalidRequestException("Invalid amount of bind variables");
@@ -368,5 +377,51 @@ public class QueryProcessor implements QueryHandler
         return key instanceof MeasurableForPreparedCache
              ? ((MeasurableForPreparedCache)key).measureForPreparedCache(meter)
              : meter.measureDeep(key);
+    }
+
+    /**
+     * Checks if query should be logged based on whether it has been enabled
+     * via JMX and if the query is on a non-system keyspace.
+     * @param queryString
+     * @param client
+     */
+    private static void maybeLogQuery(String queryString, ClientState client)
+    {
+        QueryRecorder queryRecorder = StorageService.instance.getQueryRecorder();
+        // dont log query if SS#queryRecorder is null as the logging hasn't yet been enabled.
+        if (queryRecorder == null)
+            return;
+        Integer frequency = queryRecorder.getFrequency();
+
+        // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
+        // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
+        // a non system table, e.g. customKeyspace.system.Idx1
+        if (frequency != null && !isSystemOrTraceKS(client, queryString))
+        {
+            // when at the nth query, append query to the log
+            synchronized (atomicCounterLock)
+            {
+                if (querylogCounter.get() == frequency - 1)
+                {
+                    queryRecorder.append(queryString);
+                    querylogCounter.set(0);
+                    logger.debug("Recorded query {}", queryString);
+                }
+                else
+                {
+                    querylogCounter.incrementAndGet();
+                }
+            }
+        }
+    }
+
+    private static boolean isSystemOrTraceKS(ClientState client, String queryString)
+    {
+
+        String keyspace = client.getRawKeyspace();
+        // potential bug might be if we use system but then issue "INSERT INTO Keyspace1 (col1, col2) VALUES (...);
+        // this will check the client state and see that the keyspace is not null and the query will be ignored
+        return keyspace == null ? queryString.contains(" " + Tracing.TRACE_KS + ".") || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")
+                                : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
     }
 }
