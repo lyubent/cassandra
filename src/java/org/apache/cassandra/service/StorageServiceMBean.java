@@ -509,4 +509,6 @@ public interface StorageServiceMBean extends NotificationEmitter
     public void enableQueryRecording(int logLimit, int frequency, String logDirectory) throws IOException;
     /** Disable query recording */
     public void disableQueryRecording();
+    /** Flush recorded query log */
+    public void forceQueryLogFlush();
 }

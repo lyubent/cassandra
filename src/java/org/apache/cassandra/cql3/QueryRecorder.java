@@ -20,10 +20,7 @@ package org.apache.cassandra.cql3;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
 
-import com.google.common.base.Charsets;
-import org.apache.commons.codec.binary.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,35 +31,23 @@ import org.apache.cassandra.utils.FBUtilities;
  */
 public class QueryRecorder
 {
-    private final Logger logger = LoggerFactory.getLogger(QueryRecorder.class);
+    public static String EOLMARKER = "_";
     private final String queryLogFileName = "QueryLog";
     private final String queryLogExtension = ".log";
+    private final String queryLogDirectory;
     private final int frequency;
-    private volatile File queryLog;
     private final int logLimit;
+    private volatile byte[] queryQue;
+    private volatile int logPosition;
+
+    private final Logger logger = LoggerFactory.getLogger(QueryRecorder.class);
 
     public QueryRecorder(int logLimit, int frequency, String queryLogDirectory)
     {
         this.frequency = frequency;
-        this.queryLog = new File(queryLogDirectory, queryLogFileName + queryLogExtension);
-        this.logLimit = logLimit;
-    }
-
-    /**
-     * Creates the query log file
-     *
-     * @throws IOException
-     */
-    public File create() throws IOException
-    {
-        if (!queryLog.exists())
-        {
-            Files.createFile(queryLog.toPath());
-
-            assert queryLog.exists();
-            logger.info("Created query log {}", queryLog.getPath());
-        }
-        return new File(queryLog.getPath());
+        this.queryLogDirectory = queryLogDirectory;
+        this.logLimit = logLimit * 1024 * 1024;
+        logPosition = 0;
     }
 
     /**
@@ -72,45 +57,58 @@ public class QueryRecorder
      */
     public synchronized void append(String queryString)
     {
-        try
+        // lazy init. the query queue
+        if (queryQue == null)
+            queryQue = new byte[logLimit];
+
+
+        int qSCounterLenght = String.valueOf(queryString.length()).length();
+        int newEntryLenght = queryString.length() + 16 + qSCounterLenght + EOLMARKER.length();
+        byte[] queryBytes = new String(FBUtilities.timestampMicros() + "" + queryString.length() + EOLMARKER + queryString).getBytes();
+
+        if (newEntryLenght + logPosition < queryQue.length)
         {
-            if (queryLog.length() > (logLimit * 1024 * 1024))
-                queryLog = rotateLog(queryLog);
-
-            byte[] queryBytes = Base64.encodeBase64(queryString.getBytes());
-            Files.write(queryLog.toPath(),
-                        Arrays.asList(FBUtilities.timestampMicros() + " " + new String(queryBytes)),
-                        Charsets.UTF_8,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.APPEND,
-                        StandardOpenOption.SYNC);
+            for (int i = 0; i < newEntryLenght; i++)
+            {
+                queryQue[logPosition] = queryBytes[i];
+                logPosition++;
+            }
         }
-        catch (IOException e)
+        // the log is full, flush it to disk
+        else
         {
-            logger.error("Failed to record query {}", queryString, e);
+            runFlush();
         }
-    }
-
-    /**
-     * Rotates logs by creating a new query.log and rotating and renaming the full log to query-timestamp_of_archiving.log
-     *
-     * @param fullLog - The filled up log to be rotated
-     * @throws IOException
-     */
-    public File rotateLog(File fullLog) throws IOException
-    {
-        Long timestamp = System.currentTimeMillis();
-        File newLog = new File(fullLog.getParent(), queryLogFileName + "-" + timestamp + queryLogExtension);
-        // copying, deleting and re-creating avoids race condition leading to 0 byte file creation.
-        Files.copy(fullLog.toPath(), newLog.toPath());
-        Files.delete(fullLog.toPath());
-
-        // create new log
-        return create();
     }
 
     public Integer getFrequency()
     {
         return frequency;
+    }
+
+    public void runFlush()
+    {
+        try
+        {
+            // todo do dense flush only if the query que is mostly empty (as determened by how far the pointer is)
+            // minimise wasted disc space by only flushing as far as the pointer.
+            byte[] denseLog = new byte[logPosition];
+            for (int i = 0; i < logPosition; i++)
+                denseLog[i] = queryQue[i];
+
+            File queryLog = new File(queryLogDirectory, FBUtilities.timestampMicros() + queryLogFileName + queryLogExtension);
+            Files.write(queryLog.toPath(),
+                        denseLog,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.SYNC);
+
+            logPosition = 0;
+            queryQue = null;
+        }
+        catch (IOException ioe)
+        {
+            logger.error("Failed to create query log {}", ioe);
+        }
     }
 }

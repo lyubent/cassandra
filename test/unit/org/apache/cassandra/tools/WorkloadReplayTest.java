@@ -91,7 +91,7 @@ public class WorkloadReplayTest extends SchemaLoader
 
         // read the query log
         File [] logLocation = LOGLOCATION.listFiles();
-        List<Pair<Long, String>> queries = WorkloadReplayer.read(logLocation);
+        Iterable<Pair<Long, String>> queries = WorkloadReplayer.read(logLocation);
 
         String host = InetAddress.getLocalHost().getHostAddress();
         int port = 9170;

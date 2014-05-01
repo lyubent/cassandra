@@ -3997,12 +3997,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void enableQueryRecording(int logLimit, int frequency, String logDirectory) throws IOException
     {
         queryRecorder = new QueryRecorder(logLimit, frequency, logDirectory);
-        queryRecorder.create();
         logger.info("Enabled query logging for 1/{} queries using log [{}] with limit of {} MB.", frequency, logDirectory, logLimit);
     }
 
     public void disableQueryRecording()
     {
+        queryRecorder.runFlush();
         queryRecorder = null;
         logger.info("Disabled query logging.");
     }
@@ -4010,5 +4010,13 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public QueryRecorder getQueryRecorder()
     {
         return queryRecorder;
+    }
+
+    public void forceQueryLogFlush()
+    {
+        if (queryRecorder != null)
+            queryRecorder.runFlush();
+        else
+            logger.warn("Can't flush query log when workload recording isn't enabled.");
     }
 }

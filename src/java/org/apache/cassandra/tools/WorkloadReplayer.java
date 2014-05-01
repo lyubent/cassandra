@@ -17,22 +17,17 @@
  */
 package org.apache.cassandra.tools;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.PrintStream;
+import java.io.*;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Charsets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.cli.*;
-import org.apache.commons.codec.binary.Base64;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -48,6 +43,7 @@ public class WorkloadReplayer
     private static final Options options = new Options();
     private static final PrintStream out = System.out;
     private static final long DEFAULT_TIMEOUT = 10000000;
+    private static final byte QUERYMARKER = "_".getBytes()[0];
 
     static
     {
@@ -86,39 +82,56 @@ public class WorkloadReplayer
         replay(replayWait, timeout, host, port, read(logPaths));
     }
 
-    public static List<Pair<Long, String>> read(File [] logDirectory) throws IOException
-    {
-        List<Pair<Long, String>> queries = new ArrayList<>();
-        for (File logPath : logDirectory)
-        {
-            if (logPath.toString().contains("QueryLog"))
-            {
-                out.println(String.format("Log path [%s]", logPath));
-                queries.addAll(read(logPath));
-            }
-        }
-
-        return queries;
-    }
-
     /**
      * Reads the log to be replayed
      *
      * @return List<Pair<Long, String>> A list of pairs containing L:timestamp R:queryString
      * @throws IOException
      */
-    private static List<Pair<Long, String>> read(File logPath) throws IOException
+    public static Iterable<Pair<Long, String>> read(File[] logPaths) throws IOException
     {
-        List<String> queriesFromLog = Files.readAllLines(logPath.getAbsoluteFile().toPath(), Charsets.UTF_8);
-        List<Pair<Long, String>> queries = new ArrayList<>(queriesFromLog.size());
-
-        for (String query : queriesFromLog)
+        List<Pair<Long, String>> queries = new ArrayList<>();
+        for (File logPath : logPaths)
         {
-            // Split the log line by the first space i.e. split the query and the timestamp
-            String [] timestampAndQuery = query.split(" ", 2);
-            // We are expecting each line to contain a queryString and a timestamp
-            assert timestampAndQuery.length == 2;
-            queries.add(Pair.create(Long.parseLong(timestampAndQuery[0]), timestampAndQuery[1]));
+            // skip files that are not query logs.
+            if(!logPath.getName().contains("QueryLog"))
+                continue;
+
+            byte [] logBytes = Files.readAllBytes(logPath.getAbsoluteFile().toPath());
+            int logPosition = 0;
+
+            while (logPosition < logBytes.length)
+            {
+                // calculate timestamp, read 16 bytes
+                byte[] timestamp = new byte[16];
+                for (int i=0; i<timestamp.length; i++)
+                    timestamp[i] = logBytes[logPosition + i];
+
+                // calculate the query's lenght, read bytes until "_" is found.
+                // max loop is 10 since that's the largest number of digits in an integer
+                // todo rework this to avoid using the extra "dynamic length" String
+                String tempQueryLength = "";
+                for (int i=0; i<10; i++)
+                {
+                    byte currByte = logBytes[logPosition + timestamp.length + i];
+                    if (currByte == QUERYMARKER)
+                        break;
+                    tempQueryLength += new String(new byte[]{currByte});
+                }
+
+                int queryLength = Integer.parseInt(tempQueryLength);
+                byte[] queryString = new byte[queryLength];
+                for (int i=0; i < queryLength; i++)
+                {
+                    // const to account for the "_" end of queryLenght marker.
+                    int index = logPosition + 1 + i + timestamp.length + tempQueryLength.length();
+                    queryString[i] = logBytes[index];
+                }
+
+                // Const 1 for going to the next for next read
+                logPosition = 1 + logPosition + timestamp.length + tempQueryLength.length() + queryString.length;
+                queries.add(Pair.create(Long.parseLong(new String(timestamp)), new String(queryString)));
+            }
         }
 
         return queries;
@@ -133,7 +146,7 @@ public class WorkloadReplayer
                               final long timeout,
                               final String host,
                               final int port,
-                              final List<Pair<Long, String>> queries)
+                              final Iterable<Pair<Long, String>> queries)
     {
         Runnable runnable = new WrappedRunnable()
         {
@@ -149,9 +162,7 @@ public class WorkloadReplayer
                     if(gapBetweenQueryExecutionTime > timeout)
                         gapBetweenQueryExecutionTime = timeout;
                     previousTimestamp = query.left;
-
-                    String queryString = new String(Base64.decodeBase64(query.right.getBytes(Charset.forName("UTF-8"))));
-                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, queryString, client);
+                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, query.right, client);
                 }
             }
         };

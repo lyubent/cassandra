@@ -288,6 +288,9 @@ public class QueryProcessor implements QueryHandler
             logger.trace(String.format("Stored prepared statement %s with %d bind markers",
                                        statementId,
                                        prepared.statement.getBoundTerms()));
+
+            // todo save the id and queryString of the preparared statement
+
             return new ResultMessage.Prepared(statementId, prepared);
         }
     }
@@ -295,6 +298,8 @@ public class QueryProcessor implements QueryHandler
     public ResultMessage processPrepared(CQLStatement statement, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
+        // todo append to the log the values and id of the executed prepared statement
+
         List<ByteBuffer> variables = options.getValues();
         // Check to see if there are any bound variables to verify
         if (!(variables.isEmpty() && (statement.getBoundTerms() == 0)))
@@ -399,18 +404,10 @@ public class QueryProcessor implements QueryHandler
         if (frequency != null && !isSystemOrTraceKS(client, queryString))
         {
             // when at the nth query, append query to the log
-            synchronized (atomicCounterLock)
+            if (querylogCounter.getAndIncrement() % frequency == 0)
             {
-                if (querylogCounter.get() == frequency - 1)
-                {
-                    queryRecorder.append(queryString);
-                    querylogCounter.set(0);
-                    logger.debug("Recorded query {}", queryString);
-                }
-                else
-                {
-                    querylogCounter.incrementAndGet();
-                }
+                queryRecorder.append(queryString);
+                logger.debug("Recorded query {}", queryString);
             }
         }
     }
