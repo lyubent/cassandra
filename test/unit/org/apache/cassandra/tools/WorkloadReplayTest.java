@@ -91,7 +91,7 @@ public class WorkloadReplayTest extends SchemaLoader
 
         // read the query log
         File [] logLocation = LOGLOCATION.listFiles();
-        Iterable<Pair<Long, String>> queries = WorkloadReplayer.read(logLocation);
+        Iterable<Pair<Long, byte[]>> queries = WorkloadReplayer.read(logLocation);
 
         String host = InetAddress.getLocalHost().getHostAddress();
         int port = 9170;
@@ -110,7 +110,6 @@ public class WorkloadReplayTest extends SchemaLoader
     @After
     public void afterTest() throws RequestExecutionException
     {
-        System.out.println("=> " + LOGLOCATION);
         // remove the test log
         for (File log : LOGLOCATION.listFiles())
             if (log.toString().contains("QueryLog"))

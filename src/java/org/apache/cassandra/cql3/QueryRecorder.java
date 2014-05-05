@@ -18,11 +18,9 @@
 package org.apache.cassandra.cql3;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -31,23 +29,17 @@ import org.apache.cassandra.utils.FBUtilities;
  */
 public class QueryRecorder
 {
-    public static String EOLMARKER = "_";
     private final String queryLogFileName = "QueryLog";
     private final String queryLogExtension = ".log";
     private final String queryLogDirectory;
     private final int frequency;
-    private final int logLimit;
-    private volatile byte[] queryQue;
-    private volatile int logPosition;
-
-    private final Logger logger = LoggerFactory.getLogger(QueryRecorder.class);
+    private AtomicReference<QueryQueue> queryQueue = new AtomicReference<>();
 
     public QueryRecorder(int logLimit, int frequency, String queryLogDirectory)
     {
         this.frequency = frequency;
         this.queryLogDirectory = queryLogDirectory;
-        this.logLimit = logLimit * 1024 * 1024;
-        logPosition = 0;
+        queryQueue.set(new QueryQueue(logLimit));
     }
 
     /**
@@ -57,24 +49,24 @@ public class QueryRecorder
      */
     public synchronized void append(String queryString)
     {
-        // lazy init. the query queue
-        if (queryQue == null)
-            queryQue = new byte[logLimit];
+        // lazy init. the query buffer
+        if (queryQueue.get().queue == null)
+            queryQueue.get().initQueue();
 
+        // 8: long (timestamp), 4: int (query length), n: query string
+        int size = 8 + 4 + queryString.length();
+        byte [] queryBytes = ByteBuffer.allocate(size)
+                                       .putLong(FBUtilities.timestampMicros())
+                                       .putInt(queryString.length())
+                                       .put(queryString.getBytes())
+                                       .array();
 
-        int qSCounterLenght = String.valueOf(queryString.length()).length();
-        int newEntryLenght = queryString.length() + 16 + qSCounterLenght + EOLMARKER.length();
-        byte[] queryBytes = new String(FBUtilities.timestampMicros() + "" + queryString.length() + EOLMARKER + queryString).getBytes();
-
-        if (newEntryLenght + logPosition < queryQue.length)
+        // check queue has enough room to add current query
+        if (size + queryQueue.get().getPosition() < queryQueue.get().queue.length)
         {
-            for (int i = 0; i < newEntryLenght; i++)
-            {
-                queryQue[logPosition] = queryBytes[i];
-                logPosition++;
-            }
+            System.arraycopy(queryBytes, 0, queryQueue.get().queue, queryQueue.get().getPosition(), queryBytes.length);
+            queryQueue.get().incPositionBy(size);
         }
-        // the log is full, flush it to disk
         else
         {
             runFlush();
@@ -88,27 +80,46 @@ public class QueryRecorder
 
     public void runFlush()
     {
-        try
+        File logFile = new File(queryLogDirectory, FBUtilities.timestampMicros() + queryLogFileName + queryLogExtension);
+        try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(logFile)))
         {
-            // todo do dense flush only if the query que is mostly empty (as determened by how far the pointer is)
-            // minimise wasted disc space by only flushing as far as the pointer.
-            byte[] denseLog = new byte[logPosition];
-            for (int i = 0; i < logPosition; i++)
-                denseLog[i] = queryQue[i];
-
-            File queryLog = new File(queryLogDirectory, FBUtilities.timestampMicros() + queryLogFileName + queryLogExtension);
-            Files.write(queryLog.toPath(),
-                        denseLog,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.SYNC);
-
-            logPosition = 0;
-            queryQue = null;
+            dos.write(queryQueue.get().queue, 0, queryQueue.get().getPosition());
         }
-        catch (IOException ioe)
+        catch (IOException iox)
         {
-            logger.error("Failed to create query log {}", ioe);
+            throw new RuntimeException(String.format("Failed to flush query log %s", logFile.getAbsolutePath()), iox);
+        }
+
+        // TODO create a new queryQueue instead of using this one, using compare and set perhaps.
+        queryQueue.get().initQueue();
+        queryQueue.get().logPosition.set(0);
+    }
+
+    public class QueryQueue
+    {
+        private byte[] queue;
+        private AtomicInteger logPosition;
+        private int limit;
+
+        public QueryQueue(int logLimit)
+        {
+            this.limit = logLimit * 1024 * 1024;
+            logPosition = new AtomicInteger(0);
+        }
+
+        public void initQueue()
+        {
+            queue = new byte[limit];
+        }
+
+        public int getPosition()
+        {
+            return logPosition.get();
+        }
+
+        public void incPositionBy(int delta)
+        {
+            logPosition.addAndGet(delta);
         }
     }
 }

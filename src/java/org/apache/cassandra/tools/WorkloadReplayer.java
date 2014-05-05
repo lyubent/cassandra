@@ -19,13 +19,9 @@ package org.apache.cassandra.tools;
 
 import java.io.*;
 import java.net.InetAddress;
-import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
-import com.google.common.base.Charsets;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.cli.*;
 
@@ -43,7 +39,6 @@ public class WorkloadReplayer
     private static final Options options = new Options();
     private static final PrintStream out = System.out;
     private static final long DEFAULT_TIMEOUT = 10000000;
-    private static final byte QUERYMARKER = "_".getBytes()[0];
 
     static
     {
@@ -88,53 +83,36 @@ public class WorkloadReplayer
      * @return List<Pair<Long, String>> A list of pairs containing L:timestamp R:queryString
      * @throws IOException
      */
-    public static Iterable<Pair<Long, String>> read(File[] logPaths) throws IOException
+    public static Iterable<Pair<Long, byte[]>> read(File[] logPaths) throws IOException
     {
-        List<Pair<Long, String>> queries = new ArrayList<>();
+        // TODO don't read all the files, read one file at a time OR
+        // TODO better yet, read segments of a file then fetch next segment once full read.
+        List<Pair<Long, byte[]>> queries = new ArrayList<>();
         for (File logPath : logPaths)
         {
             // skip files that are not query logs.
             if(!logPath.getName().contains("QueryLog"))
                 continue;
 
-            byte [] logBytes = Files.readAllBytes(logPath.getAbsoluteFile().toPath());
-            int logPosition = 0;
-
-            while (logPosition < logBytes.length)
+            try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(logPath))))
             {
-                // calculate timestamp, read 16 bytes
-                byte[] timestamp = new byte[16];
-                for (int i=0; i<timestamp.length; i++)
-                    timestamp[i] = logBytes[logPosition + i];
-
-                // calculate the query's lenght, read bytes until "_" is found.
-                // max loop is 10 since that's the largest number of digits in an integer
-                // todo rework this to avoid using the extra "dynamic length" String
-                String tempQueryLength = "";
-                for (int i=0; i<10; i++)
+                while (dis.available() > 0)
                 {
-                    byte currByte = logBytes[logPosition + timestamp.length + i];
-                    if (currByte == QUERYMARKER)
-                        break;
-                    tempQueryLength += new String(new byte[]{currByte});
+                    long timestamp = dis.readLong();
+                    int queryLength = dis.readInt();
+                    byte[] queryString = new byte[queryLength];
+                    dis.read(queryString, 0, queryString.length);
+                    queries.add(Pair.create(timestamp, queryString));
                 }
-
-                int queryLength = Integer.parseInt(tempQueryLength);
-                byte[] queryString = new byte[queryLength];
-                for (int i=0; i < queryLength; i++)
-                {
-                    // const to account for the "_" end of queryLenght marker.
-                    int index = logPosition + 1 + i + timestamp.length + tempQueryLength.length();
-                    queryString[i] = logBytes[index];
-                }
-
-                // Const 1 for going to the next for next read
-                logPosition = 1 + logPosition + timestamp.length + tempQueryLength.length() + queryString.length;
-                queries.add(Pair.create(Long.parseLong(new String(timestamp)), new String(queryString)));
+            }
+            catch (IOException iox)
+            {
+                throw new RuntimeException(String.format("Error opening query log %s", logPath.getAbsolutePath()), iox);
             }
         }
 
         return queries;
+
     }
 
     /**
@@ -146,7 +124,7 @@ public class WorkloadReplayer
                               final long timeout,
                               final String host,
                               final int port,
-                              final Iterable<Pair<Long, String>> queries)
+                              final Iterable<Pair<Long, byte[]>> queries)
     {
         Runnable runnable = new WrappedRunnable()
         {
@@ -155,14 +133,14 @@ public class WorkloadReplayer
                 Long previousTimestamp = 0L;
                 Cassandra.Client client = createThriftClient(host, port);
 
-                for (Pair<Long, String> query : queries)
+                for (Pair<Long, byte[]> query : queries)
                 {
                     Long gapBetweenQueryExecutionTime = query.left - previousTimestamp;
                     // set max wait time to 10 sec
                     if(gapBetweenQueryExecutionTime > timeout)
                         gapBetweenQueryExecutionTime = timeout;
                     previousTimestamp = query.left;
-                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, query.right, client);
+                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, new String(query.right), client);
                 }
             }
         };

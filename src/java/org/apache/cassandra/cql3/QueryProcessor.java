@@ -76,9 +76,6 @@ public class QueryProcessor implements QueryHandler
     private static final ConcurrentLinkedHashMap<MD5Digest, CQLStatement> preparedStatements;
     private static final ConcurrentLinkedHashMap<Integer, CQLStatement> thriftPreparedStatements;
 
-    // Used to lock counter incrementation for recording every n'th query.
-    private static final Object atomicCounterLock = new Object();
-
     static
     {
         preparedStatements = new ConcurrentLinkedHashMap.Builder<MD5Digest, CQLStatement>()
@@ -169,6 +166,8 @@ public class QueryProcessor implements QueryHandler
         maybeLogQuery(queryString, queryState.getClientState());
 
         CQLStatement prepared = getStatement(queryString, queryState.getClientState()).statement;
+
+
         if (prepared.getBoundTerms() != options.getValues().size())
             throw new InvalidRequestException("Invalid amount of bind variables");
 
@@ -414,10 +413,10 @@ public class QueryProcessor implements QueryHandler
 
     private static boolean isSystemOrTraceKS(ClientState client, String queryString)
     {
-
         String keyspace = client.getRawKeyspace();
         // potential bug might be if we use system but then issue "INSERT INTO Keyspace1 (col1, col2) VALUES (...);
         // this will check the client state and see that the keyspace is not null and the query will be ignored
+        // TODO .contains !good enough
         return keyspace == null ? queryString.contains(" " + Tracing.TRACE_KS + ".") || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")
                                 : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
     }
