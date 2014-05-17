@@ -1537,4 +1537,14 @@ public class DatabaseDescriptor
     {
         return conf.flush_directory;
     }
+
+    public static int getTracetypeRepairTTL()
+    {
+        return conf.tracetype_repair_ttl;
+    }
+
+    public static int getTracetypeQueryTTL()
+    {
+        return conf.tracetype_query_ttl;
+    }
 }

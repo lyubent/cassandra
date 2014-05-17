@@ -31,6 +31,7 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.db.ArrayBackedSortedColumns;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.Mutation;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.UUIDGen;
@@ -46,22 +47,87 @@ public class TraceState
     public final InetAddress coordinator;
     public final Stopwatch watch;
     public final ByteBuffer sessionIdBytes;
+    public final long traceType;
+    public final int ttl;
+
+    public Object userData;
+    public long notifyTypes;
+
+    private boolean done;
+    private int counter;
+    private Object counterLock;
 
     public TraceState(InetAddress coordinator, UUID sessionId)
     {
+        this(coordinator, sessionId, Tracing.TRACETYPE_DEFAULT);
+    }
+
+    public TraceState(InetAddress coordinator, UUID sessionId, long traceType)
+    {
+        this(coordinator, sessionId, traceType, Tracing.getTTL(traceType));
+    }
+
+    public TraceState(InetAddress coordinator, UUID sessionId, long traceType, int ttl)
+    {
         assert coordinator != null;
         assert sessionId != null;
+        assert Tracing.isValidTraceType(traceType);
 
         this.coordinator = coordinator;
         this.sessionId = sessionId;
         sessionIdBytes = ByteBufferUtil.bytes(sessionId);
+        this.traceType = traceType;
+        this.ttl = ttl;
         watch = Stopwatch.createStarted();
+
+        done = false;
+        counter = 0;
+        counterLock = new Object();
     }
 
     public int elapsed()
     {
         long elapsed = watch.elapsed(TimeUnit.MICROSECONDS);
         return elapsed < Integer.MAX_VALUE ? (int) elapsed : Integer.MAX_VALUE;
+    }
+
+    public void stop()
+    {
+        done = true;
+        notifyActivity();
+    }
+
+    public int waitActivity(int oldCounter, long timeout)
+    {
+        if (done)
+            return -1;
+
+        try
+        {
+            synchronized (counterLock)
+            {
+                if (oldCounter == -1)
+                    oldCounter = counter;
+
+                long cur, end = System.currentTimeMillis() + timeout;
+                while (oldCounter == counter && (cur = System.currentTimeMillis()) < end)
+                    counterLock.wait(end - cur);
+                return done ? -1 : counter;
+            }
+        }
+        catch (InterruptedException e)
+        {
+            return 0;
+        }
+    }
+
+    private void notifyActivity()
+    {
+        synchronized (counterLock)
+        {
+            counter = (counter + 1) & Integer.MAX_VALUE;
+            counterLock.notifyAll();
+        }
     }
 
     public void trace(String format, Object arg)
@@ -81,13 +147,27 @@ public class TraceState
 
     public void trace(String message)
     {
-        TraceState.trace(sessionIdBytes, message, elapsed());
+        trace(Tracing.TRACETYPE_DEFAULT, message);
     }
 
-    public static void trace(final ByteBuffer sessionIdBytes, final String message, final int elapsed)
+    public void trace(long traceType, String message)
+    {
+        if ((this.traceType & traceType) == 0)
+            return;
+        if ((this.notifyTypes & traceType) != 0)
+            notifyActivity();
+
+        TraceState.trace(sessionIdBytes, message, elapsed(), this.traceType, ttl, userData);
+    }
+
+    public static void trace(final ByteBuffer sessionIdBytes, final String message, final int elapsed, final long traceType, final int ttl, final Object userData)
     {
         final ByteBuffer eventId = ByteBuffer.wrap(UUIDGen.getTimeUUIDBytes());
         final String threadName = Thread.currentThread().getName();
+        final String command = Tracing.getCommandName(traceType);
+
+        if (userData != null && traceType == Tracing.TRACETYPE_REPAIR)
+            StorageService.instance.sendNotification("repair", message, userData);
 
         StageManager.getStage(Stage.TRACING).execute(new WrappedRunnable()
         {
@@ -95,11 +175,12 @@ public class TraceState
             {
                 CFMetaData cfMeta = CFMetaData.TraceEventsCf;
                 ColumnFamily cf = ArrayBackedSortedColumns.factory.create(cfMeta);
-                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("activity")), message);
-                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source")), FBUtilities.getBroadcastAddress());
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("activity")), message, ttl);
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source")), FBUtilities.getBroadcastAddress(), ttl);
                 if (elapsed >= 0)
-                    Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source_elapsed")), elapsed);
-                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("thread")), threadName);
+                    Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("source_elapsed")), elapsed, ttl);
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("thread")), threadName, ttl);
+                Tracing.addColumn(cf, Tracing.buildName(cfMeta, eventId, ByteBufferUtil.bytes("command")), command, ttl);
                 Tracing.mutateWithCatch(new Mutation(Tracing.TRACE_KS, sessionIdBytes, cf));
             }
         });
