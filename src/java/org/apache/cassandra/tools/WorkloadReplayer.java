@@ -23,13 +23,13 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.Uninterruptibles;
+import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.commons.cli.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.thrift.*;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.Pair;
 import org.apache.cassandra.utils.WrappedRunnable;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.TException;
@@ -80,14 +80,15 @@ public class WorkloadReplayer
     /**
      * Reads the log to be replayed
      *
-     * @return List<Pair<Long, String>> A list of pairs containing L:timestamp R:queryString
+     * @return Iterable<QuerylogSegment> A list of objects containing the timestamp and query string
      * @throws IOException
      */
-    public static Iterable<Pair<Long, byte[]>> read(File[] logPaths) throws IOException
+    // public static Iterable<Pair<Long, byte[]>> read(File[] logPaths) throws IOException
+    public static Iterable<QuerylogSegment> read(File[] logPaths) throws IOException
     {
         // TODO don't read all the files, read one file at a time OR
         // TODO better yet, read segments of a file then fetch next segment once full read.
-        List<Pair<Long, byte[]>> queries = new ArrayList<>();
+        List<QuerylogSegment> queries = new ArrayList<>();
         for (File logPath : logPaths)
         {
             // skip files that are not query logs.
@@ -102,7 +103,7 @@ public class WorkloadReplayer
                     int queryLength = dis.readInt();
                     byte[] queryString = new byte[queryLength];
                     dis.read(queryString, 0, queryString.length);
-                    queries.add(Pair.create(timestamp, queryString));
+                    queries.add(new QuerylogSegment(timestamp, queryString));
                 }
             }
             catch (IOException iox)
@@ -110,21 +111,23 @@ public class WorkloadReplayer
                 throw new RuntimeException(String.format("Error opening query log %s", logPath.getAbsolutePath()), iox);
             }
         }
-
         return queries;
-
     }
 
     /**
      * Executes queries against a cluster
      *
-     * @throws Exception
+     * @param rapidReplay boolean representing whether to simulate query delays
+     * @param timeout max wait time for the delay
+     * @param host address of host for replay
+     * @param port port of host for replay
+     * @param queries List of queries to be replayed.
      */
     public static void replay(final boolean rapidReplay,
                               final long timeout,
                               final String host,
                               final int port,
-                              final Iterable<Pair<Long, byte[]>> queries)
+                              final Iterable<QuerylogSegment> queries)
     {
         Runnable runnable = new WrappedRunnable()
         {
@@ -133,14 +136,14 @@ public class WorkloadReplayer
                 Long previousTimestamp = 0L;
                 Cassandra.Client client = createThriftClient(host, port);
 
-                for (Pair<Long, byte[]> query : queries)
+                for (QuerylogSegment query : queries)
                 {
-                    Long gapBetweenQueryExecutionTime = query.left - previousTimestamp;
+                    Long gapBetweenQueryExecutionTime = query.getTimestamp() - previousTimestamp;
                     // set max wait time to 10 sec
                     if(gapBetweenQueryExecutionTime > timeout)
                         gapBetweenQueryExecutionTime = timeout;
-                    previousTimestamp = query.left;
-                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, new String(query.right), client);
+                    previousTimestamp = query.getTimestamp();
+                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, query.getQueryString(), client);
                 }
             }
         };
@@ -150,9 +153,11 @@ public class WorkloadReplayer
 
     /**
      * Execute a cql3 query via thrift.
-     * @param query CQL3 query string
+     * @param rapidReplay Whether to ignore delay between queries, true means replay as fast as possible.
      * @param queryGap Gap between current and previous query
-     * @throws Exception
+     * @param query CQL3 query string
+     * @param thriftClient Client for query replay
+     * @throws TException
      */
     // todo possibly swap to use java driver here.
     public static void executeQuery(boolean rapidReplay, long queryGap, String query, Cassandra.Client thriftClient)

@@ -30,6 +30,7 @@ import org.github.jamm.MemoryMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.apache.cassandra.cql3.recording.QueryRecorder;
 import org.apache.cassandra.cql3.statements.*;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
@@ -405,7 +406,7 @@ public class QueryProcessor implements QueryHandler
             // when at the nth query, append query to the log
             if (querylogCounter.getAndIncrement() % frequency == 0)
             {
-                queryRecorder.append(queryString);
+                queryRecorder.allocate(queryString);
                 logger.debug("Recorded query {}", queryString);
             }
         }

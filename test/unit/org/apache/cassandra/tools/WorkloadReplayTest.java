@@ -20,7 +20,6 @@ package org.apache.cassandra.tools;
 
 import java.io.File;
 import java.net.InetAddress;
-import java.util.List;
 
 import com.google.common.io.Files;
 import org.junit.After;
@@ -30,6 +29,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -39,7 +39,6 @@ import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.ThriftServer;
-import org.apache.cassandra.utils.Pair;
 
 public class WorkloadReplayTest extends SchemaLoader
 {
@@ -91,7 +90,7 @@ public class WorkloadReplayTest extends SchemaLoader
 
         // read the query log
         File [] logLocation = LOGLOCATION.listFiles();
-        Iterable<Pair<Long, byte[]>> queries = WorkloadReplayer.read(logLocation);
+        Iterable<QuerylogSegment> queries = WorkloadReplayer.read(logLocation);
 
         String host = InetAddress.getLocalHost().getHostAddress();
         int port = 9170;
