@@ -132,7 +132,7 @@ public class RepairJob
         for (InetAddress endpoint : endpoints)
             treeRequests.add(endpoint);
 
-        String message = String.format("Requesting merkle trees for %s (to %s)", desc.columnFamily, endpoints);
+        String message = String.format("Requesting merkle trees for %s from %s", desc.columnFamily, endpoints);
         logger.info("[repair #{}] {}", desc.sessionId, message);
         Tracing.trace(Tracing.TRACETYPE_REPAIR | 1, message);
         treeRequests.start();

@@ -2642,10 +2642,10 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
             {
                 StringBuilder cfsb = new StringBuilder();
                 for (ColumnFamilyStore cfs : getValidColumnFamilies(false, false, keyspace, columnFamilies))
-                    cfsb.append(", ").append(cfs.name);
+                    cfsb.append(", ").append(cfs.keyspace.getName()).append(".").append(cfs.name);
                 String cfNames = cfsb.substring(2);
 
-                String message = String.format("Starting repair command #%d, repairing %d ranges for keyspace %s.{%s} (seq=%b, full=%b)", cmd, ranges.size(), keyspace, cfNames, isSequential, fullRepair);
+                String message = String.format("Starting repair command #%d, repairing %d ranges for %s (seq=%b, full=%b)", cmd, ranges.size(), cfNames, isSequential, fullRepair);
                 final UUID sessionId;
                 Thread queryThread;
                 if (trace)
@@ -3878,6 +3878,12 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public List<String> getKeyspaces()
     {
         List<String> keyspaceNamesList = new ArrayList<>(Schema.instance.getKeyspaces());
+        return Collections.unmodifiableList(keyspaceNamesList);
+    }
+
+    public List<String> getNonSystemKeyspaces()
+    {
+        List<String> keyspaceNamesList = new ArrayList<>(Schema.instance.getNonSystemKeyspaces());
         return Collections.unmodifiableList(keyspaceNamesList);
     }
 

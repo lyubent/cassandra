@@ -313,10 +313,15 @@ public class NodeTool
 
         protected List<String> parseOptionalKeyspace(List<String> cmdArgs, NodeProbe nodeProbe)
         {
+            return parseOptionalKeyspace(cmdArgs, nodeProbe, false);
+        }
+
+        protected List<String> parseOptionalKeyspace(List<String> cmdArgs, NodeProbe nodeProbe, boolean includeSystemKS)
+        {
             List<String> keyspaces = new ArrayList<>();
 
             if (cmdArgs == null || cmdArgs.isEmpty())
-                keyspaces.addAll(nodeProbe.getKeyspaces());
+                keyspaces.addAll(includeSystemKS ? nodeProbe.getKeyspaces() : nodeProbe.getNonSystemKeyspaces());
             else
                 keyspaces.add(cmdArgs.get(0));
 
@@ -1613,7 +1618,7 @@ public class NodeTool
         @Override
         public void execute(NodeProbe probe)
         {
-            List<String> keyspaces = parseOptionalKeyspace(args, probe);
+            List<String> keyspaces = parseOptionalKeyspace(args, probe, false);
             String[] cfnames = parseOptionalColumnFamilies(args);
 
             for (String keyspace : keyspaces)
