@@ -63,19 +63,18 @@ public class Differencer implements Runnable
 
         // choose a repair method based on the significance of the difference
         String format = String.format("Endpoints %s and %s %%s for %s", r1.endpoint, r2.endpoint, desc.columnFamily);
-        String message;
         if (differences.isEmpty())
         {
-            logger.info("[repair #{}] {}", desc.sessionId, message = String.format(format, "are consistent"));
-            Tracing.trace(Tracing.TRACETYPE_REPAIR, message);
+            logger.info("[repair #{}] {}", desc.sessionId, String.format(format, "are consistent"));
+            Tracing.trace(Tracing.TRACETYPE_REPAIR, String.format("Endpoint %s is consistent with %s for %s", r1.endpoint, r2.endpoint, desc.columnFamily));
             // send back sync complete message
             MessagingService.instance().sendOneWay(new SyncComplete(desc, r1.endpoint, r2.endpoint, true).createMessage(), FBUtilities.getLocalAddress());
             return;
         }
 
         // non-0 difference: perform streaming repair
-        logger.info("[repair #{}] {}", desc.sessionId, message = String.format(format, "have " + differences.size() + " range(s) out of sync"));
-        Tracing.trace(Tracing.TRACETYPE_REPAIR, message);
+        logger.info("[repair #{}] {}", desc.sessionId, String.format(format, "have " + differences.size() + " range(s) out of sync"));
+        Tracing.trace(Tracing.TRACETYPE_REPAIR, String.format("Endpoint %s has %d range(s) out of sync with %s for %s", r1.endpoint, differences.size(), r2.endpoint, desc.columnFamily));
         performStreamingRepair();
     }
 

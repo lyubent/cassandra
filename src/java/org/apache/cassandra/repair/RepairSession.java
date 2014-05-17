@@ -247,7 +247,7 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
     {
         String message;
         logger.info(String.format("[repair #%s] new session: will sync %s on range %s for %s.%s", getId(), repairedNodes(), range, keyspace, Arrays.toString(cfnames)));
-        Tracing.trace(Tracing.TRACETYPE_REPAIR, String.format("New session %s will sync range %s", getId(), range));
+        Tracing.trace(Tracing.TRACETYPE_REPAIR, String.format("Syncing range %s", range));
 
         if (endpoints.isEmpty())
         {
@@ -287,8 +287,8 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
 
             if (exception == null)
             {
-                logger.info("[repair #{}] {}", getId(), message = "Session completed successfully");
-                Tracing.trace(Tracing.TRACETYPE_REPAIR, message);
+                logger.info("[repair #{}] {}", getId(), "Session completed successfully");
+                Tracing.trace(Tracing.TRACETYPE_REPAIR, String.format("Completed sync of range %s", range));
             }
             else
             {

@@ -101,7 +101,14 @@ public class StreamingRepairTask implements Runnable, StreamEventHandler
                 state.trace(Tracing.TRACETYPE_REPAIR, String.format("Streaming session with %s %s.", sce.peer, sce.success ? "completed successfully" : "failed"));
                 break;
             case FILE_PROGRESS:
-                state.trace(Tracing.TRACETYPE_REPAIR, ((StreamEvent.ProgressEvent) event).progress.toString());
+                ProgressInfo pi = ((StreamEvent.ProgressEvent) event).progress;
+                state.trace(Tracing.TRACETYPE_REPAIR, String.format("%d/%d bytes (%d%%) %s idx:%d%s",
+                                                                    pi.currentBytes,
+                                                                    pi.totalBytes,
+                                                                    pi.currentBytes * 100 / pi.totalBytes,
+                                                                    pi.direction == ProgressInfo.Direction.OUT ? "sent to" : "received from",
+                                                                    pi.sessionIndex,
+                                                                    pi.peer));
         }
     }
 
