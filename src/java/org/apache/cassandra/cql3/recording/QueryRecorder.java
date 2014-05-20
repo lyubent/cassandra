@@ -19,6 +19,7 @@ package org.apache.cassandra.cql3.recording;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.cassandra.utils.FBUtilities;
@@ -33,68 +34,76 @@ public class QueryRecorder
     private static final String QUERYLOG_EXT = ".log";
     private final String QUERYLOG_DIR;
     private final int frequency;
-    private AtomicReference<QueryQueue> queryQueue = new AtomicReference<>();
+    private final int logLimit;
     private final OpOrder opOrder = new OpOrder();
+    private final ExecutorService executor = new ThreadPoolExecutor(0, 1, Long.MAX_VALUE, TimeUnit.SECONDS, new LinkedBlockingDeque<Runnable>());
+    private final ConcurrentLinkedQueue<QueryQueue> failedFlushQueue = new ConcurrentLinkedQueue<>();
+    private AtomicReference<QueryQueue> queryQueue = new AtomicReference<>();
 
     public QueryRecorder(int logLimit, int frequency, String queryLogDirectory)
     {
         this.frequency = frequency;
+        this.logLimit = logLimit;
         QUERYLOG_DIR = queryLogDirectory;
-        queryQueue.set(new QueryQueue(logLimit));
     }
 
     public void allocate(String queryString)
     {
-        if (queryQueue.get().getQueue() == null)
-            queryQueue.get().initQueue();
+        // initialise first queue, ensure CAS succeeded
+        if (queryQueue.get() == null)
+            assert queryQueue.compareAndSet(null, new QueryQueue(logLimit));
 
         OpOrder.Group opGroup = opOrder.start();
         try
         {
+
             byte [] queryBytes = queryString.getBytes();
             int size = calcSegmentSize(queryBytes);
-            int position = allocate(size);
             byte [] logSegment = ByteBuffer.allocate(size)
                                            .putLong(FBUtilities.timestampMicros())
                                            .putInt(queryBytes.length)
                                            .put(queryBytes)
                                            .array();
-
-            // check for room in queue first, if queue is full then close the op, flush the log,
-            // re-initialize the queue, re-start the op and then continue with the append after
-            // updating the position of the newly initialized queue.
-            if (position == -1)
+            QueryQueue q;
+            while (true)
             {
-                opGroup.close();
-                runFlush();
-                opGroup = opOrder.start();
-                // re-allocate.
-                position = allocate(size);
+                q = queryQueue.get();
+                int position = q.allocate(size);
+                // check for room in queue first, if queue is full then CAS the queue,
+                // upon success flush the log in it's own thread and repeat the loop to
+                // re-allocate the byte[] to be appended to the newly set queue.
+                if (position == -1)
+                {
+                    final int limit = q.getQueue().length;
+                    final byte[] queueToFlush = q.getQueue();
+                    final int pos = q.getPosition();
+
+                    if (queryQueue.compareAndSet(q, new QueryQueue(limit)))
+                    {
+                        executor.submit(new Runnable()
+                        {
+                            public void run()
+                            {
+                                runFlush(pos, queueToFlush);
+                            }
+                        });
+                    }
+                    else
+                    {
+                        failedFlushQueue.add(q);
+                    }
+
+                    // re-allocate.
+                    continue;
+                }
+
+                append(size, position, logSegment, q);
+                break;
             }
-            append(size, position, logSegment, queryQueue.get());
         }
         finally
         {
             opGroup.close();
-        }
-    }
-
-    private int allocate(int size)
-    {
-        QueryQueue queue;
-        int position;
-        int length;
-
-        while (true)
-        {
-            queue = queryQueue.get();
-            position = queue.getPosition();
-            length = queue.getQueue().length;
-
-            if (position + size > length)
-                return -1;
-            else if (position + size > 0 && queue.compareAndSetPos(position, position + size))
-                return position;
         }
     }
 
@@ -125,16 +134,14 @@ public class QueryRecorder
         return frequency;
     }
 
-    public synchronized void runFlush()
+    public void runFlush()
     {
-        byte[] queueToFlush = queryQueue.get().getQueue();
+        QueryQueue q = queryQueue.get();
+        runFlush(q.getPosition(), q.getQueue());
+    }
 
-        int finalPos = queryQueue.get().getPosition();
-        int limit = queryQueue.get().getQueue().length;
-        if (queryQueue.compareAndSet(queryQueue.get(), new QueryQueue(limit)))
-            queryQueue.get().initQueue();
-
-        // todo timing out
+    public void runFlush(final int finalPos, final byte[] queueToFlush)
+    {
         OpOrder.Barrier barrier = opOrder.newBarrier();
         barrier.issue();
         barrier.await();

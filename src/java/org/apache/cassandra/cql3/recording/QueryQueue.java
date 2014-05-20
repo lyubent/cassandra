@@ -22,17 +22,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class QueryQueue
 {
-    private byte[] queue;
+    private final byte[] queue;
     private AtomicInteger logPosition;
     private int limit;
 
     public QueryQueue(int logLimit)
     {
-        this.limit = logLimit * 1024 * 1024;
-    }
-
-    public void initQueue()
-    {
+        limit = logLimit * 1024 * 1024;
         queue = new byte[limit];
         logPosition = new AtomicInteger(0);
     }
@@ -47,17 +43,21 @@ public class QueryQueue
         return queue;
     }
 
-    public void incPositionBy(int delta)
+    public int allocate(int size)
     {
-        logPosition.addAndGet(delta);
-    }
+        int position = logPosition.get();
+        int length = queue.length;
 
-    public boolean compareAndSetPos(int expected, int update)
-    {
-        return logPosition.compareAndSet(expected, update);
+        if (position + size > length)
+            return -1;
+        if (position + size > 0 && position + size < length && logPosition.compareAndSet(position, position + size))
+            return position;
+
+        return -1;
     }
 
     @Override
+    // todo REMOVE POST submission.
     public String toString() {
         return "QueryQueue{" +
                 "queue=" + Arrays.toString(queue) +
