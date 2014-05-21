@@ -163,15 +163,12 @@ public class QueryProcessor implements QueryHandler
     public ResultMessage process(String queryString, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
-        // check if workload recording is enabled
-        maybeLogQuery(queryString, queryState.getClientState());
-
         CQLStatement prepared = getStatement(queryString, queryState.getClientState()).statement;
-
 
         if (prepared.getBoundTerms() != options.getValues().size())
             throw new InvalidRequestException("Invalid amount of bind variables");
 
+        maybeLogQuery(queryString, queryState.getClientState(), prepared);
         return processStatement(prepared, queryState, options);
     }
 
@@ -387,10 +384,11 @@ public class QueryProcessor implements QueryHandler
     /**
      * Checks if query should be logged based on whether it has been enabled
      * via JMX and if the query is on a non-system keyspace.
-     * @param queryString
+     * @param queryString query to be saved
      * @param client
+     * @param statement parsed query used to retrieve keyspace
      */
-    private static void maybeLogQuery(String queryString, ClientState client)
+    private static void maybeLogQuery(String queryString, ClientState client, CQLStatement statement)
     {
         QueryRecorder queryRecorder = StorageService.instance.getQueryRecorder();
         // dont log query if SS#queryRecorder is null as the logging hasn't yet been enabled.
@@ -401,7 +399,7 @@ public class QueryProcessor implements QueryHandler
         // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
         // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
         // a non system table, e.g. customKeyspace.system.Idx1
-        if (frequency != null && !isSystemOrTraceKS(client, queryString))
+        if (frequency != null && !isSystemOrTraceKS(statement))
         {
             // when at the nth query, append query to the log
             if (querylogCounter.getAndIncrement() % frequency == 0)
@@ -412,13 +410,14 @@ public class QueryProcessor implements QueryHandler
         }
     }
 
-    private static boolean isSystemOrTraceKS(ClientState client, String queryString)
+    private static boolean isSystemOrTraceKS(CQLStatement statement)
     {
-        String keyspace = client.getRawKeyspace();
-        // potential bug might be if we use system but then issue "INSERT INTO Keyspace1 (col1, col2) VALUES (...);
-        // this will check the client state and see that the keyspace is not null and the query will be ignored
-        // TODO .contains !good enough
-        return keyspace == null ? queryString.contains(" " + Tracing.TRACE_KS + ".") || queryString.contains(" " + Keyspace.SYSTEM_KS + ".")
-                                : StringUtils.equals(keyspace, Keyspace.SYSTEM_KS) || StringUtils.equals(keyspace, Tracing.TRACE_KS);
+        // BatchStatement is special-cased as never being a System/Trace KS
+        // as it can contain both both system and non-system statements.
+        if (statement instanceof BatchStatement)
+             return false;
+
+        String keyspace = ((AccessibleKeyspace)statement).keyspace();
+        return (keyspace.equals(Keyspace.SYSTEM_KS) || keyspace.equals(Tracing.TRACE_KS));
     }
 }

@@ -17,6 +17,7 @@
  */
 package org.apache.cassandra.cql3.statements;
 
+import org.apache.cassandra.cql3.AccessibleKeyspace;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -25,7 +26,7 @@ import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 
-public class UseStatement extends ParsedStatement implements CQLStatement
+public class UseStatement extends ParsedStatement implements CQLStatement, AccessibleKeyspace
 {
     private final String keyspace;
 
@@ -63,5 +64,10 @@ public class UseStatement extends ParsedStatement implements CQLStatement
     {
         // Internal queries are exclusively on the system keyspace and 'use' is thus useless
         throw new UnsupportedOperationException();
+    }
+
+    public String keyspace()
+    {
+        return keyspace;
     }
 }

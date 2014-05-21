@@ -57,7 +57,7 @@ import org.slf4j.LoggerFactory;
  * column family, expression, result count, and ordering clause.
  *
  */
-public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
+public class SelectStatement implements CQLStatement, MeasurableForPreparedCache, AccessibleKeyspace
 {
     private static final Logger logger = LoggerFactory.getLogger(SelectStatement.class);
 
