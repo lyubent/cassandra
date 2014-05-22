@@ -612,6 +612,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
                     logger.warn("Caught exception while waiting for memtable flushes during shutdown hook", e);
                 }
 
+                queryRecorder.forceFlush();
                 CommitLog.instance.shutdownBlocking();
 
                 // wait for miscellaneous tasks like sstable and commitlog segment deletion
@@ -4001,7 +4002,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
     public void disableQueryRecording()
     {
-        queryRecorder.runFlush();
+        queryRecorder.forceFlush();
         queryRecorder = null;
         logger.info("Disabled query logging.");
     }
@@ -4014,7 +4015,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void forceQueryLogFlush()
     {
         if (queryRecorder != null)
-            queryRecorder.runFlush();
+            queryRecorder.forceFlush();
         else
             logger.warn("Can't flush query log when workload recording isn't enabled.");
     }

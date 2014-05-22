@@ -37,21 +37,22 @@ public class QueryRecorder
     private final int logLimit;
     private final OpOrder opOrder = new OpOrder();
     private final ExecutorService executor = new ThreadPoolExecutor(0, 1, Long.MAX_VALUE, TimeUnit.SECONDS, new LinkedBlockingDeque<Runnable>());
-    private final ConcurrentLinkedQueue<QueryQueue> failedFlushQueue = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<QueryQueue> recycledQueue = new ConcurrentLinkedQueue<>();
     private AtomicReference<QueryQueue> queryQueue = new AtomicReference<>();
+    private ByteBuffer logSegment;
 
     public QueryRecorder(int logLimit, int frequency, String queryLogDirectory)
     {
         this.frequency = frequency;
-        this.logLimit = logLimit;
+        this.logLimit = logLimit * 1024 * 1024;
         QUERYLOG_DIR = queryLogDirectory;
     }
 
     public void allocate(String queryString)
     {
-        // initialise first queue, ensure CAS succeeded
         if (queryQueue.get() == null)
-            assert queryQueue.compareAndSet(null, new QueryQueue(logLimit));
+            // todo possibly throw a RTE if CAS fails.
+            queryQueue.compareAndSet(null, new QueryQueue(logLimit));
 
         OpOrder.Group opGroup = opOrder.start();
         try
@@ -59,52 +60,64 @@ public class QueryRecorder
 
             byte [] queryBytes = queryString.getBytes();
             int size = calcSegmentSize(queryBytes);
-            byte [] logSegment = ByteBuffer.allocate(size)
-                                           .putLong(FBUtilities.timestampMicros())
-                                           .putInt(queryBytes.length)
-                                           .put(queryBytes)
-                                           .array();
-            QueryQueue q;
+            byte [] logSegment = buildSegment(size, queryBytes);
+
             while (true)
             {
-                q = queryQueue.get();
+                QueryQueue q = queryQueue.get();
                 int position = q.allocate(size);
-                // check for room in queue first, if queue is full then CAS the queue,
-                // upon success flush the log in it's own thread and repeat the loop to
-                // re-allocate the byte[] to be appended to the newly set queue.
-                if (position == -1)
+
+                // check for room in queue first
+                if (position >= 0)
                 {
-                    final int limit = q.getQueue().length;
-                    final byte[] queueToFlush = q.getQueue();
-                    final int pos = q.getPosition();
-
-                    if (queryQueue.compareAndSet(q, new QueryQueue(limit)))
-                    {
-                        executor.submit(new Runnable()
-                        {
-                            public void run()
-                            {
-                                runFlush(pos, queueToFlush);
-                            }
-                        });
-                    }
-                    else
-                    {
-                        failedFlushQueue.add(q);
-                    }
-
-                    // re-allocate.
-                    continue;
+                    append(size, position, logSegment, q);
+                    break;
                 }
 
-                append(size, position, logSegment, q);
-                break;
+                // if queue is full then CAS the queue, upon success flush the log in it's own thread
+                final byte[] queueToFlush = q.getQueue();
+                final int pos = q.getPosition();
+
+                // recycle QueryQueues to avoid re-allocating.
+                QueryQueue newQ = recycledQueue.poll();
+                if (newQ == null)
+                    newQ = new QueryQueue(logLimit);
+                if (queryQueue.compareAndSet(q, newQ))
+                {
+                    q.getLogPosition().compareAndSet(pos, logLimit);
+                    executor.submit(new Runnable()
+                    {
+                        public void run()
+                        {
+                            runFlush(pos, queueToFlush);
+                        }
+                    });
+                }
+
+                // reset position to allow QueryQueue to be recycled.
+                if (q.getLogPosition().compareAndSet(logLimit, 0))
+                    recycledQueue.add(q);
             }
         }
         finally
         {
             opGroup.close();
         }
+    }
+
+    private byte[] buildSegment(int size, byte[] queryBytes)
+    {
+        // todo possible optimization, place n number of buffers (with a limit
+        // todo to prevent OOM) on a map with the key being buffer size.
+        if (logSegment == null || logSegment.limit() < size)
+            logSegment = ByteBuffer.allocate(size);
+        else
+            logSegment.clear();
+
+        return logSegment.putLong(FBUtilities.timestampMicros())
+                         .putInt(queryBytes.length)
+                         .put(queryBytes)
+                         .array();
     }
 
     /**
@@ -134,13 +147,13 @@ public class QueryRecorder
         return frequency;
     }
 
-    public void runFlush()
+    public void forceFlush()
     {
         QueryQueue q = queryQueue.get();
         runFlush(q.getPosition(), q.getQueue());
     }
 
-    public void runFlush(final int finalPos, final byte[] queueToFlush)
+    private void runFlush(final int finalPos, final byte[] queueToFlush)
     {
         OpOrder.Barrier barrier = opOrder.newBarrier();
         barrier.issue();

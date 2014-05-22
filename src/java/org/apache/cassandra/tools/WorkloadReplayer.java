@@ -170,7 +170,7 @@ public class WorkloadReplayer
             Uninterruptibles.sleepUninterruptibly(queryGap, TimeUnit.MICROSECONDS);
         }
         out.println();
-        thriftClient.execute_cql3_query(ByteBufferUtil.bytes(query), Compression.NONE, ConsistencyLevel.ANY);
+        thriftClient.execute_cql3_query(ByteBufferUtil.bytes(query), Compression.NONE, ConsistencyLevel.ONE);
     }
 
     public static Cassandra.Client createThriftClient(String host, int port)
