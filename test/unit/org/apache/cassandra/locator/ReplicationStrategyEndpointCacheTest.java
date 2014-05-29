@@ -22,28 +22,46 @@ package org.apache.cassandra.locator;
 import java.net.InetAddress;
 import java.util.*;
 
-import org.apache.cassandra.db.Keyspace;
-
 import org.apache.commons.lang3.StringUtils;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.BigIntegerToken;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.service.MigrationManager;
 
-public class ReplicationStrategyEndpointCacheTest extends SchemaLoader
+public class ReplicationStrategyEndpointCacheTest
 {
     private TokenMetadata tmd;
     private Token searchToken;
     private AbstractReplicationStrategy strategy;
+    public static final String KEYSPACE = "ReplicationStrategyEndpointCacheTest";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE,
+                simple,
+                KSMetaData.optsWithRF(5)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     public void setup(Class stratClass, Map<String, String> strategyOptions) throws Exception
     {
         tmd = new TokenMetadata();
         searchToken = new BigIntegerToken(String.valueOf(15));
 
-        strategy = getStrategyWithNewTokenMetadata(Keyspace.open("Keyspace3").getReplicationStrategy(), tmd);
+        strategy = getStrategyWithNewTokenMetadata(Keyspace.open(KEYSPACE).getReplicationStrategy(), tmd);
 
         tmd.updateNormalToken(new BigIntegerToken(String.valueOf(10)), InetAddress.getByName("127.0.0.1"));
         tmd.updateNormalToken(new BigIntegerToken(String.valueOf(20)), InetAddress.getByName("127.0.0.2"));

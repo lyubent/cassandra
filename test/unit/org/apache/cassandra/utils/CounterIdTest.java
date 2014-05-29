@@ -17,15 +17,23 @@
  */
 package org.apache.cassandra.utils;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.db.SystemKeyspace;
+import org.apache.cassandra.exceptions.ConfigurationException;
 
-import static org.junit.Assert.assertEquals;
-
-public class CounterIdTest extends SchemaLoader
+public class CounterIdTest
 {
+    @BeforeClass
+    public static void startGossip() throws ConfigurationException
+    {
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+    }
+
     @Test
     public void testGetCurrentIdFromSystemKeyspace()
     {

@@ -73,8 +73,9 @@ public class RelocateTest
     @BeforeClass
     public static void setUp() throws Exception
     {
+        SchemaLoader.startGossiper();
         oldPartitioner = StorageService.instance.setPartitionerUnsafe(partitioner);
-        SchemaLoader.loadSchema();
+        SchemaLoader.initSchema();
         vvFactory = new VersionedValue.VersionedValueFactory(partitioner);
     }
 

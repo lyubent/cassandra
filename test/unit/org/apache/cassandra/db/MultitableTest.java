@@ -20,39 +20,73 @@ package org.apache.cassandra.db;
  *
  */
 
-import org.apache.cassandra.Util;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.junit.BeforeClass;
 import org.junit.Test;
 
-import static org.apache.cassandra.db.KeyspaceTest.assertColumns;
 import org.apache.cassandra.SchemaLoader;
-import static org.apache.cassandra.Util.column;
+import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 
-public class MultitableTest extends SchemaLoader
+import static org.apache.cassandra.Util.column;
+import static org.apache.cassandra.db.KeyspaceTest.assertColumns;
+
+public class MultitableTest
 {
+    private static final String KEYSPACE1 = "MultitableTest1";
+    private static final String KEYSPACE2 = "MultitableTest2";
+    private static final String CF1 = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF1)));
+        schema.add(KSMetaData.testMetadata(KEYSPACE2,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE2, CF1)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
+
     @Test
     public void testSameCFs()
     {
-        Keyspace keyspace1 = Keyspace.open("Keyspace1");
-        Keyspace keyspace2 = Keyspace.open("Keyspace2");
+        Keyspace keyspace1 = Keyspace.open(KEYSPACE1);
+        Keyspace keyspace2 = Keyspace.open(KEYSPACE2);
 
         Mutation rm;
         DecoratedKey dk = Util.dk("keymulti");
         ColumnFamily cf;
 
-        cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF1);
         cf.addColumn(column("col1", "val1", 1L));
-        rm = new Mutation("Keyspace1", dk.getKey(), cf);
+        rm = new Mutation(KEYSPACE1, dk.getKey(), cf);
         rm.apply();
 
-        cf = ArrayBackedSortedColumns.factory.create("Keyspace2", "Standard1");
+        cf = ArrayBackedSortedColumns.factory.create(KEYSPACE2, CF1);
         cf.addColumn(column("col2", "val2", 1L));
-        rm = new Mutation("Keyspace2", dk.getKey(), cf);
+        rm = new Mutation(KEYSPACE2, dk.getKey(), cf);
         rm.apply();
 
-        keyspace1.getColumnFamilyStore("Standard1").forceBlockingFlush();
-        keyspace2.getColumnFamilyStore("Standard1").forceBlockingFlush();
+        keyspace1.getColumnFamilyStore(CF1).forceBlockingFlush();
+        keyspace2.getColumnFamilyStore(CF1).forceBlockingFlush();
 
-        assertColumns(Util.getColumnFamily(keyspace1, dk, "Standard1"), "col1");
-        assertColumns(Util.getColumnFamily(keyspace2, dk, "Standard1"), "col2");
+        assertColumns(Util.getColumnFamily(keyspace1, dk, CF1), "col1");
+        assertColumns(Util.getColumnFamily(keyspace2, dk, CF1), "col2");
     }
 }

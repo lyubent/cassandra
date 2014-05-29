@@ -26,18 +26,23 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import org.junit.Test;
-
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.db.ArrayBackedSortedColumns;
-import org.apache.cassandra.db.ColumnFamily;
-
 import com.googlecode.concurrentlinkedhashmap.Weighers;
-
-import static org.apache.cassandra.Util.column;
+import org.junit.BeforeClass;
+import org.junit.Test;
 import static org.junit.Assert.*;
 
-public class CacheProviderTest extends SchemaLoader
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.ArrayBackedSortedColumns;
+import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
+
+import static org.apache.cassandra.Util.column;
+
+public class CacheProviderTest
 {
     MeasureableString key1 = new MeasureableString("key1");
     MeasureableString key2 = new MeasureableString("key2");
@@ -45,8 +50,24 @@ public class CacheProviderTest extends SchemaLoader
     MeasureableString key4 = new MeasureableString("key4");
     MeasureableString key5 = new MeasureableString("key5");
     private static final long CAPACITY = 4;
-    private String keyspaceName = "Keyspace1";
-    private String cfName = "Standard1";
+    private static final String KEYSPACE1 = "CacheProviderTest1";
+    private static final String CF_STANDARD1 = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                              simple,
+                              KSMetaData.optsWithRF(1),
+                              SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1)));
+        SchemaLoader.initSchema();
+        SchemaLoader.startGossiper();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     private void simpleCase(ColumnFamily cf, ICache<MeasureableString, IRowCacheEntry> cache)
     {
@@ -100,7 +121,7 @@ public class CacheProviderTest extends SchemaLoader
 
     private ColumnFamily createCF()
     {
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(keyspaceName, cfName);
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("vijay", "great", 1));
         cf.addColumn(column("awesome", "vijay", 1));
         return cf;

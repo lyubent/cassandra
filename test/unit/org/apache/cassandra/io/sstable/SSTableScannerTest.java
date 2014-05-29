@@ -20,11 +20,15 @@ package org.apache.cassandra.io.sstable;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.*;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.compaction.ICompactionScanner;
@@ -32,14 +36,32 @@ import org.apache.cassandra.dht.Bounds;
 import org.apache.cassandra.dht.BytesToken;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-import static org.junit.Assert.*;
-
-public class SSTableScannerTest extends SchemaLoader
+public class SSTableScannerTest
 {
-    public static final String KEYSPACE = "Keyspace1";
-    public static final String TABLE = "Standard1";
+    public static final String KEYSPACE = "SSTableScannerTest";
+    public static final String CF_STANDARD = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE,
+                   simple,
+                   KSMetaData.optsWithRF(1),
+                   SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     private static String toKey(int key)
     {
@@ -72,7 +94,7 @@ public class SSTableScannerTest extends SchemaLoader
         long timestamp = System.currentTimeMillis();
         DecoratedKey decoratedKey = Util.dk(toKey(key));
         Mutation rm = new Mutation(KEYSPACE, decoratedKey.getKey());
-        rm.add(TABLE, Util.cellname("col"), ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp, 1000);
+        rm.add(CF_STANDARD, Util.cellname("col"), ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp, 1000);
         rm.apply();
     }
 
@@ -94,7 +116,7 @@ public class SSTableScannerTest extends SchemaLoader
     public void testSingleDataRange()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore(TABLE);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
         store.clearUnsafe();
 
         // disable compaction while flushing
@@ -157,7 +179,7 @@ public class SSTableScannerTest extends SchemaLoader
     public void testMultipleRanges()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore(TABLE);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
         store.clearUnsafe();
 
         // disable compaction while flushing
@@ -289,7 +311,7 @@ public class SSTableScannerTest extends SchemaLoader
     public void testSingleKeyMultipleRanges()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore(TABLE);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
         store.clearUnsafe();
 
         // disable compaction while flushing

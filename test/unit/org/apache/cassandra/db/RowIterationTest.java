@@ -20,37 +20,65 @@ package org.apache.cassandra.db;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
 
-import org.apache.cassandra.Util;
-
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.FBUtilities;
-import static org.junit.Assert.assertEquals;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-
-public class RowIterationTest extends SchemaLoader
+public class RowIterationTest
 {
-    public static final String KEYSPACE1 = "Keyspace2";
+    public static final String KEYSPACE1 = "RowIterationTest";
+    public static final String CF_SUPER3 = "Super3";
+    public static final String CF_STANDARD3 = "Standard3";
+
     public static final InetAddress LOCAL = FBUtilities.getBroadcastAddress();
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, "Standard3"),
+                                           SchemaLoader.superCFMD(KEYSPACE1, "Super3", LongType.instance)
+        ));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     @Test
     public void testRowIteration()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Super3");
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_SUPER3);
 
         final int ROWS_PER_SSTABLE = 10;
         Set<DecoratedKey> inserted = new HashSet<DecoratedKey>();
         for (int i = 0; i < ROWS_PER_SSTABLE; i++) {
             DecoratedKey key = Util.dk(String.valueOf(i));
             Mutation rm = new Mutation(KEYSPACE1, key.getKey());
-            rm.add("Super3", CellNames.compositeDense(ByteBufferUtil.bytes("sc"), ByteBufferUtil.bytes(String.valueOf(i))), ByteBuffer.wrap(new byte[ROWS_PER_SSTABLE * 10 - i * 2]), i);
+            rm.add(CF_SUPER3, CellNames.compositeDense(ByteBufferUtil.bytes("sc"), ByteBufferUtil.bytes(String.valueOf(i))), ByteBuffer.wrap(new byte[ROWS_PER_SSTABLE * 10 - i * 2]), i);
             rm.apply();
             inserted.add(key);
         }
@@ -62,7 +90,7 @@ public class RowIterationTest extends SchemaLoader
     public void testRowIterationDeletionTime()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        String CF_NAME = "Standard3";
+        String CF_NAME = CF_STANDARD3;
         ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_NAME);
         DecoratedKey key = Util.dk("key");
 
@@ -90,7 +118,7 @@ public class RowIterationTest extends SchemaLoader
     public void testRowIterationDeletion()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        String CF_NAME = "Standard3";
+        String CF_NAME = CF_STANDARD3;
         ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_NAME);
         DecoratedKey key = Util.dk("key");
 

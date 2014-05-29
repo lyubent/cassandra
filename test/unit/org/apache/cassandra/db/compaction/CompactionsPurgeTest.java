@@ -18,37 +18,82 @@
 */
 package org.apache.cassandra.db.compaction;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
-import org.apache.cassandra.db.*;
-
+import org.junit.BeforeClass;
 import org.junit.Test;
-
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.cql3.UntypedResultSet;
-import org.apache.cassandra.db.filter.QueryFilter;
-import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.Util;
-
 import static org.junit.Assert.assertEquals;
-import static org.apache.cassandra.db.KeyspaceTest.assertColumns;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 
-import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
-
-import static org.apache.cassandra.Util.cellname;
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.Util;
+import org.apache.cassandra.cache.CachingOptions;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
+import static org.apache.cassandra.db.KeyspaceTest.assertColumns;
+import static org.apache.cassandra.cql3.QueryProcessor.executeInternal;
+import static org.apache.cassandra.Util.cellname;
 
-public class CompactionsPurgeTest extends SchemaLoader
+public class CompactionsPurgeTest
 {
-    public static final String KEYSPACE1 = "Keyspace1";
-    public static final String KEYSPACE2 = "Keyspace2";
+    private static final String KEYSPACE1 = "CompactionsPurgeTest1";
+    private static final String CF_STANDARD1 = "Standard1";
+    private static final String CF_STANDARD2 = "Standard2";
+    private static final String KEYSPACE2 = "CompactionsPurgeTest2";
+    private static final String KEYSPACE_CACHED = "CompactionsPurgeTestCached";
+    private static final String CF_CACHED = "CachedCF";
+    private static final String KEYSPACE_CQL = "cql_keyspace";
+    private static final String CF_CQL = "table1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2)));
+        schema.add(KSMetaData.testMetadata(KEYSPACE2,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD1)));
+        schema.add(KSMetaData.testMetadata(KEYSPACE_CACHED,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE_CACHED, CF_CACHED).caching(CachingOptions.ALL)));
+        schema.add(KSMetaData.testMetadata(KEYSPACE_CQL,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           CFMetaData.compile("CREATE TABLE " + CF_CQL + " ("
+                                                   + "k int PRIMARY KEY,"
+                                                   + "v1 text,"
+                                                   + "v2 int"
+                                                   + ")", KEYSPACE_CQL)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     @Test
     public void testMajorCompactionPurge() throws ExecutionException, InterruptedException
@@ -56,7 +101,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         CompactionManager.instance.disableAutoCompaction();
 
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        String cfName = "Standard1";
+        String cfName = CF_STANDARD1;
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
 
         DecoratedKey key = Util.dk("key1");
@@ -100,7 +145,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         CompactionManager.instance.disableAutoCompaction();
 
         Keyspace keyspace = Keyspace.open(KEYSPACE2);
-        String cfName = "Standard1";
+        String cfName = CF_STANDARD1;
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
 
         Mutation rm;
@@ -159,7 +204,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         CompactionManager.instance.disableAutoCompaction();
 
         Keyspace keyspace = Keyspace.open(KEYSPACE2);
-        String cfName = "Standard1";
+        String cfName = CF_STANDARD1;
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
         Mutation rm;
         DecoratedKey key3 = Util.dk("key3");
@@ -199,7 +244,7 @@ public class CompactionsPurgeTest extends SchemaLoader
         CompactionManager.instance.disableAutoCompaction();
 
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        String cfName = "Standard2";
+        String cfName = CF_STANDARD2;
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
 
         DecoratedKey key = Util.dk("key1");
@@ -235,8 +280,8 @@ public class CompactionsPurgeTest extends SchemaLoader
     {
         CompactionManager.instance.disableAutoCompaction();
 
-        String keyspaceName = "RowCacheSpace";
-        String cfName = "CachedCF";
+        String keyspaceName = KEYSPACE_CACHED;
+        String cfName = CF_CACHED;
         Keyspace keyspace = Keyspace.open(keyspaceName);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
 
@@ -283,8 +328,8 @@ public class CompactionsPurgeTest extends SchemaLoader
     {
         CompactionManager.instance.disableAutoCompaction();
 
-        String keyspaceName = "Keyspace1";
-        String cfName = "Standard1";
+        String keyspaceName = KEYSPACE1;
+        String cfName = CF_STANDARD1;
         Keyspace keyspace = Keyspace.open(keyspaceName);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
         DecoratedKey key = Util.dk("key3");
@@ -325,8 +370,8 @@ public class CompactionsPurgeTest extends SchemaLoader
     @Test
     public void testRowTombstoneObservedBeforePurging() throws InterruptedException, ExecutionException
     {
-        String keyspace = "cql_keyspace";
-        String table = "table1";
+        String keyspace = KEYSPACE_CQL;
+        String table = CF_CQL;
         ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(table);
         cfs.disableAutoCompaction();
 

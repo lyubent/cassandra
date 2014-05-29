@@ -31,6 +31,7 @@ import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
@@ -41,6 +42,10 @@ import org.apache.cassandra.db.composites.CellNameType;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.streaming.StreamPlan;
 import org.apache.cassandra.streaming.StreamSession;
@@ -50,16 +55,32 @@ import org.apache.cassandra.utils.FBUtilities;
 /**
  * Tests backwards compatibility for SSTables
  */
-public class LegacySSTableTest extends SchemaLoader
+public class LegacySSTableTest
 {
     public static final String LEGACY_SSTABLE_PROP = "legacy-sstable-root";
-    public static final String KSNAME = "Keyspace1";
-    public static final String CFNAME = "Standard1";
+    public static final String KEYSPACE1 = "LegacySSTableTest";
+    public static final String CF_STANDARD = "Standard1";
 
     public static Set<String> TEST_DATA;
     public static File LEGACY_SSTABLE_ROOT;
 
     @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+        beforeClass();
+    }
+
     public static void beforeClass()
     {
         Keyspace.setInitialized();
@@ -78,8 +99,8 @@ public class LegacySSTableTest extends SchemaLoader
      */
     protected Descriptor getDescriptor(String ver)
     {
-        File directory = new File(LEGACY_SSTABLE_ROOT + File.separator + ver + File.separator + KSNAME);
-        return new Descriptor(ver, directory, KSNAME, CFNAME, 0, Descriptor.Type.FINAL);
+        File directory = new File(LEGACY_SSTABLE_ROOT + File.separator + ver + File.separator + KEYSPACE1);
+        return new Descriptor(ver, directory, KEYSPACE1, CF_STANDARD, 0, Descriptor.Type.FINAL);
     }
 
     /**
@@ -93,7 +114,7 @@ public class LegacySSTableTest extends SchemaLoader
         Descriptor dest = getDescriptor(Descriptor.Version.current_version);
         assert dest.directory.mkdirs() : "Could not create " + dest.directory + ". Might it already exist?";
 
-        SSTableReader ssTable = SSTableUtils.prepare().ks(KSNAME).cf(CFNAME).dest(dest).write(TEST_DATA);
+        SSTableReader ssTable = SSTableUtils.prepare().ks(KEYSPACE1).cf(CF_STANDARD).dest(dest).write(TEST_DATA);
         assert ssTable.descriptor.generation == 0 :
             "In order to create a generation 0 sstable, please run this test alone.";
         System.out.println(">>> Wrote " + dest);
@@ -124,7 +145,7 @@ public class LegacySSTableTest extends SchemaLoader
         new StreamPlan("LegacyStreamingTest").transferFiles(FBUtilities.getBroadcastAddress(), details)
                                              .execute().get();
 
-        ColumnFamilyStore cfs = Keyspace.open(KSNAME).getColumnFamilyStore(CFNAME);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD);
         assert cfs.getSSTables().size() == 1;
         sstable = cfs.getSSTables().iterator().next();
         CellNameType type = sstable.metadata.comparator;

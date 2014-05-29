@@ -19,29 +19,57 @@
 package org.apache.cassandra.io.sstable;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
 
-import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.dht.IPartitioner;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.marshal.IntegerType;
+import org.apache.cassandra.dht.IPartitioner;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
+
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 import static org.apache.cassandra.utils.ByteBufferUtil.toInt;
 
-public class SSTableSimpleWriterTest extends SchemaLoader
+public class SSTableSimpleWriterTest
 {
+    public static final String KEYSPACE = "SSTableSimpleWriterTest";
+    public static final String CF_STANDARDINT = "StandardInteger1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE,
+                   simple,
+                   KSMetaData.optsWithRF(1),
+                   SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARDINT)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
+
     @Test
     public void testSSTableSimpleUnsortedWriter() throws Exception
     {
         final int INC = 5;
         final int NBCOL = 10;
 
-        String keyspaceName = "Keyspace1";
-        String cfname = "StandardInteger1";
+        String keyspaceName = KEYSPACE;
+        String cfname = CF_STANDARDINT;
 
         Keyspace t = Keyspace.open(keyspaceName); // make sure we create the directory
         File dir = new Directories(Schema.instance.getCFMetaData(keyspaceName, cfname)).getDirectoryForCompactedSSTables();

@@ -1,4 +1,3 @@
-package org.apache.cassandra.service;
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -19,30 +18,56 @@ package org.apache.cassandra.service;
  * under the License.
  *
  */
+package org.apache.cassandra.service;
 
-
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.*;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.ArrayBackedSortedColumns;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.DeletionInfo;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 
-import static org.junit.Assert.*;
 import static org.apache.cassandra.Util.column;
 import static org.apache.cassandra.db.KeyspaceTest.*;
 
-public class RowResolverTest extends SchemaLoader
+public class RowResolverTest
 {
+    public static final String KEYSPACE1 = "Keyspace1";
+    public static final String CF_STANDARD = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
+
     @Test
     public void testResolveSupersetNewer()
     {
-        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf1.addColumn(column("c1", "v1", 0));
 
-        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf2.addColumn(column("c1", "v2", 1));
 
         ColumnFamily resolved = RowDataResolver.resolveSuperset(Arrays.asList(cf1, cf2), System.currentTimeMillis());
@@ -54,10 +79,10 @@ public class RowResolverTest extends SchemaLoader
     @Test
     public void testResolveSupersetDisjoint()
     {
-        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf1.addColumn(column("c1", "v1", 0));
 
-        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf2.addColumn(column("c2", "v2", 1));
 
         ColumnFamily resolved = RowDataResolver.resolveSuperset(Arrays.asList(cf1, cf2), System.currentTimeMillis());
@@ -69,7 +94,7 @@ public class RowResolverTest extends SchemaLoader
     @Test
     public void testResolveSupersetNullOne()
     {
-        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf2.addColumn(column("c2", "v2", 1));
 
         ColumnFamily resolved = RowDataResolver.resolveSuperset(Arrays.asList(null, cf2), System.currentTimeMillis());
@@ -81,7 +106,7 @@ public class RowResolverTest extends SchemaLoader
     @Test
     public void testResolveSupersetNullTwo()
     {
-        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf1.addColumn(column("c1", "v1", 0));
 
         ColumnFamily resolved = RowDataResolver.resolveSuperset(Arrays.asList(cf1, null), System.currentTimeMillis());
@@ -100,10 +125,10 @@ public class RowResolverTest extends SchemaLoader
     public void testResolveDeleted()
     {
         // one CF with columns timestamped before a delete in another cf
-        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf1.addColumn(column("one", "A", 0));
 
-        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf2.delete(new DeletionInfo(1L, (int) (System.currentTimeMillis() / 1000)));
 
         ColumnFamily resolved = RowDataResolver.resolveSuperset(Arrays.asList(cf1, cf2), System.currentTimeMillis());
@@ -118,19 +143,19 @@ public class RowResolverTest extends SchemaLoader
     {
         // deletes and columns with interleaved timestamp, with out of order return sequence
 
-        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf1 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf1.delete(new DeletionInfo(0L, (int) (System.currentTimeMillis() / 1000)));
 
         // these columns created after the previous deletion
-        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf2.addColumn(column("one", "A", 1));
         cf2.addColumn(column("two", "A", 1));
 
         //this column created after the next delete
-        ColumnFamily cf3 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf3 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf3.addColumn(column("two", "B", 3));
 
-        ColumnFamily cf4 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf4 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD);
         cf4.delete(new DeletionInfo(2L, (int) (System.currentTimeMillis() / 1000)));
 
         ColumnFamily resolved = RowDataResolver.resolveSuperset(Arrays.asList(cf1, cf2, cf3, cf4), System.currentTimeMillis());

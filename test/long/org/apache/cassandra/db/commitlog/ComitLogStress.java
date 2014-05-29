@@ -51,7 +51,7 @@ public class ComitLogStress
                 TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(10 * NUM_THREADS), new NamedThreadFactory(""), "");
         ScheduledExecutorService scheduled = Executors.newScheduledThreadPool(1);
 
-        org.apache.cassandra.SchemaLoader.loadSchema();
+        org.apache.cassandra.SchemaLoader.initSchema();
         final AtomicLong count = new AtomicLong();
         final long start = System.currentTimeMillis();
         System.out.println(String.format(format, "seconds", "max_mb", "allocated_mb", "free_mb", "diffrence", "count"));

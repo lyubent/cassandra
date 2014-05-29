@@ -21,13 +21,14 @@ import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.HashMap;
 import java.util.concurrent.ExecutionException;
 
 import com.google.common.collect.Lists;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.SchemaLoader;
@@ -46,16 +47,13 @@ import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.UUIDGen;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
-public class BatchlogManagerTest extends SchemaLoader
+public class BatchlogManagerTest
 {
     private static final String KEYSPACE = "BatchlogManagerTest";
+
     @BeforeClass
-    // The aim here is to replace creating all the kss and their cfs in SchemaLoader#schemaDefinition
     public static void defineSchema() throws ConfigurationException
     {
         List<KSMetaData> schema = new ArrayList<>();
@@ -64,11 +62,11 @@ public class BatchlogManagerTest extends SchemaLoader
         schema.add(KSMetaData.testMetadata(KEYSPACE,
                                            simple,
                                            KSMetaData.optsWithRF(1),
-                                           // Column Families
-                                           standardCFMD(KEYSPACE, "Standard1").compactionStrategyOptions(new HashMap<String, String>()),
-                                           standardCFMD(KEYSPACE, "Standard2"),
-                                           standardCFMD(KEYSPACE, "Standard3")));
-        startGossiper();
+                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard1"),
+                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard2"),
+                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard3")));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
         for (KSMetaData ksm : schema)
             MigrationManager.announceNewKeyspace(ksm);
     }

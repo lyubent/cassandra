@@ -57,7 +57,8 @@ public class MultiColumnRelationTest
     @BeforeClass
     public static void setUpClass() throws Throwable
     {
-        SchemaLoader.loadSchema();
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
         executeSchemaChange("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}");
         executeSchemaChange("CREATE TABLE IF NOT EXISTS %s.single_partition (a int PRIMARY KEY, b int)");
         executeSchemaChange("CREATE TABLE IF NOT EXISTS %s.compound_partition (a int, b int, c int, PRIMARY KEY ((a, b)))");

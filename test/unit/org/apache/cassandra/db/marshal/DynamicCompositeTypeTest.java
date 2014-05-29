@@ -19,12 +19,16 @@
 package org.apache.cassandra.db.marshal;
 
 import java.nio.ByteBuffer;
-import java.util.Iterator;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.service.MigrationManager;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.fail;
 
@@ -35,14 +39,15 @@ import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.utils.*;
 
-public class DynamicCompositeTypeTest extends SchemaLoader
+public class DynamicCompositeTypeTest
 {
-    private static final String cfName = "StandardDynamicComposite";
+    private static final String KEYSPACE = "DynamicCompositeTypeTest";
+    private static final String CF_STANDARDDYNCOMPOSITE = "StandardDynamicComposite";
+    private static Map<Byte, AbstractType<?>> aliases = new HashMap<Byte, AbstractType<?>>();
 
     private static final DynamicCompositeType comparator;
     static
     {
-        Map<Byte, AbstractType<?>> aliases = new HashMap<Byte, AbstractType<?>>();
         aliases.put((byte)'b', BytesType.instance);
         aliases.put((byte)'t', TimeUUIDType.instance);
         comparator = DynamicCompositeType.getInstance(aliases);
@@ -54,6 +59,23 @@ public class DynamicCompositeTypeTest extends SchemaLoader
     {
         for (int i = 0; i < UUID_COUNT; ++i)
             uuids[i] = UUIDGen.getTimeUUID();
+    }
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+        AbstractType<?> dynamicComposite = DynamicCompositeType.getInstance(aliases);
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           CFMetaData.denseCFMetaData(KEYSPACE, "StandardDynamicComposite", dynamicComposite)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
     }
 
     @Test
@@ -163,8 +185,8 @@ public class DynamicCompositeTypeTest extends SchemaLoader
     @Test
     public void testFullRound() throws Exception
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfName);
+        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDDYNCOMPOSITE);
 
         ByteBuffer cname1 = createDynamicCompositeKey("test1", null, -1, false);
         ByteBuffer cname2 = createDynamicCompositeKey("test1", uuids[0], 24, false);
@@ -173,7 +195,7 @@ public class DynamicCompositeTypeTest extends SchemaLoader
         ByteBuffer cname5 = createDynamicCompositeKey("test2", uuids[1], 42, false);
 
         ByteBuffer key = ByteBufferUtil.bytes("k");
-        Mutation rm = new Mutation("Keyspace1", key);
+        Mutation rm = new Mutation(KEYSPACE, key);
         addColumn(rm, cname5);
         addColumn(rm, cname1);
         addColumn(rm, cname4);
@@ -181,7 +203,7 @@ public class DynamicCompositeTypeTest extends SchemaLoader
         addColumn(rm, cname3);
         rm.apply();
 
-        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("k"), cfName, System.currentTimeMillis()));
+        ColumnFamily cf = cfs.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("k"), CF_STANDARDDYNCOMPOSITE, System.currentTimeMillis()));
 
         Iterator<Cell> iter = cf.getSortedColumns().iterator();
 
@@ -232,7 +254,7 @@ public class DynamicCompositeTypeTest extends SchemaLoader
 
     private void addColumn(Mutation rm, ByteBuffer cname)
     {
-        rm.add(cfName, CellNames.simpleDense(cname), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
+        rm.add(CF_STANDARDDYNCOMPOSITE, CellNames.simpleDense(cname), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
     }
 
     private ByteBuffer createDynamicCompositeKey(String s, UUID uuid, int i, boolean lastIsOne)

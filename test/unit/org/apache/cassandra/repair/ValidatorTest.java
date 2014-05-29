@@ -20,12 +20,17 @@ package org.apache.cassandra.repair;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import org.junit.After;
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.*;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DecoratedKey;
@@ -35,11 +40,15 @@ import org.apache.cassandra.db.compaction.AbstractCompactedRow;
 import org.apache.cassandra.dht.IPartitioner;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ColumnStats;
 import org.apache.cassandra.io.util.DataOutputPlus;
 import org.apache.cassandra.net.MessageIn;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.sink.IMessageSink;
 import org.apache.cassandra.sink.SinkManager;
 import org.apache.cassandra.repair.messages.RepairMessage;
@@ -48,13 +57,27 @@ import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.SimpleCondition;
 
-import static org.junit.Assert.*;
-
-public class ValidatorTest extends SchemaLoader
+public class ValidatorTest
 {
-    private final String keyspace = "Keyspace1";
-    private final String columnFamily = "Standard1";
+    private static final String KEYSPACE1 = "Keyspace1";
+    private static final String CF_STANDARD = "Standard1";
     private final IPartitioner partitioner = StorageService.getPartitioner();
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                   simple,
+                   KSMetaData.optsWithRF(1),
+                   SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     @After
     public void tearDown()
@@ -66,7 +89,7 @@ public class ValidatorTest extends SchemaLoader
     public void testValidatorComplete() throws Throwable
     {
         Range<Token> range = new Range<>(partitioner.getMinimumToken(), partitioner.getRandomToken());
-        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), keyspace, columnFamily, range);
+        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), KEYSPACE1, CF_STANDARD, range);
 
         final SimpleCondition lock = new SimpleCondition();
         SinkManager.add(new IMessageSink()
@@ -100,7 +123,7 @@ public class ValidatorTest extends SchemaLoader
 
         InetAddress remote = InetAddress.getByName("127.0.0.2");
 
-        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(columnFamily);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD);
 
         Validator validator = new Validator(desc, remote, 0);
         validator.prepare(cfs);
@@ -147,7 +170,7 @@ public class ValidatorTest extends SchemaLoader
     public void testValidatorFailed() throws Throwable
     {
         Range<Token> range = new Range<>(partitioner.getMinimumToken(), partitioner.getRandomToken());
-        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), keyspace, columnFamily, range);
+        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), KEYSPACE1, CF_STANDARD, range);
 
         final SimpleCondition lock = new SimpleCondition();
         SinkManager.add(new IMessageSink()

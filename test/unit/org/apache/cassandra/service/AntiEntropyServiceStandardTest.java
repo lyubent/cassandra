@@ -20,15 +20,38 @@ package org.apache.cassandra.service;
  *
  */
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedList;
 
+import org.junit.BeforeClass;
+
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class AntiEntropyServiceStandardTest extends AntiEntropyServiceTestAbstract
 {
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata("Keyspace5",
+                simple,
+                KSMetaData.optsWithRF(2),
+                standardCFMD("Keyspace5", "Standard1")));
+        startGossiper();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
+
     public void init()
     {
         keyspaceName = "Keyspace5";

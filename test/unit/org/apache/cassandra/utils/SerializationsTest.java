@@ -18,18 +18,25 @@
  */
 package org.apache.cassandra.utils;
 
+import java.io.DataInputStream;
+import java.io.IOException;
+
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import org.apache.cassandra.AbstractSerializationsTester;
+import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
 import org.apache.cassandra.service.StorageService;
 
-import org.junit.Test;
-
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 
 public class SerializationsTest extends AbstractSerializationsTester
 {
+    @BeforeClass
+    public static void startGossip()
+    {
+        SchemaLoader.startGossiper();
+    }
 
     private void testBloomFilterWrite(boolean offheap) throws IOException
     {

@@ -8,33 +8,57 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.junit.BeforeClass;
+import org.junit.Test;
 import junit.framework.Assert;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.EmbeddedCassandraService;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.thrift.TException;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
-public class MultiSliceTest extends SchemaLoader
+public class MultiSliceTest
 {
     private static CassandraServer server;
-    
+
+    public static final String KEYSPACE1 = "MultiSliceTest";
+    public static final String CF_STANDARD = "Standard1";
+
     @BeforeClass
+    public static void defineSchema() throws ConfigurationException, IOException, TException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+        setup();
+    }
+
     public static void setup() throws IOException, TException 
     {
         Schema.instance.clear(); // Schema are now written on disk and will be reloaded
         new EmbeddedCassandraService().start();
         ThriftSessionManager.instance.setCurrentSocket(new InetSocketAddress(9160));        
         server = new CassandraServer();
-        server.set_keyspace("Keyspace1");
+        server.set_keyspace(KEYSPACE1);
     }
 
     private static MultiSliceRequest makeMultiSliceRequest(ByteBuffer key)
     {
-        ColumnParent cp = new ColumnParent("Standard1");
+        ColumnParent cp = new ColumnParent(CF_STANDARD);
         MultiSliceRequest req = new MultiSliceRequest();
         req.setKey(key);
         req.setCount(1000);
@@ -46,7 +70,7 @@ public class MultiSliceTest extends SchemaLoader
     @Test
     public void test_multi_slice_optional_column_slice() throws TException
     {
-        ColumnParent cp = new ColumnParent("Standard1");
+        ColumnParent cp = new ColumnParent(CF_STANDARD);
         ByteBuffer key = ByteBuffer.wrap("multi_slice".getBytes());
         List<String> expected = new ArrayList<String>();
         for (char a = 'a'; a <= 'z'; a++)
@@ -63,7 +87,7 @@ public class MultiSliceTest extends SchemaLoader
     @Test
     public void test_multi_slice() throws TException
     {
-        ColumnParent cp = new ColumnParent("Standard1");
+        ColumnParent cp = new ColumnParent(CF_STANDARD);
         ByteBuffer key = ByteBuffer.wrap("multi_slice_two_slice".getBytes());
         addTheAlphabetToRow(key, cp);
         MultiSliceRequest req = makeMultiSliceRequest(key);
@@ -74,7 +98,7 @@ public class MultiSliceTest extends SchemaLoader
     @Test
     public void test_with_overlap() throws TException
     {
-        ColumnParent cp = new ColumnParent("Standard1");
+        ColumnParent cp = new ColumnParent(CF_STANDARD);
         ByteBuffer key = ByteBuffer.wrap("overlap".getBytes());
         addTheAlphabetToRow(key, cp);
         MultiSliceRequest req = makeMultiSliceRequest(key);
@@ -85,7 +109,7 @@ public class MultiSliceTest extends SchemaLoader
     @Test
     public void test_with_overlap_reversed() throws TException
     {
-        ColumnParent cp = new ColumnParent("Standard1");
+        ColumnParent cp = new ColumnParent(CF_STANDARD);
         ByteBuffer key = ByteBuffer.wrap("overlap_reversed".getBytes());
         addTheAlphabetToRow(key, cp);
         MultiSliceRequest req = makeMultiSliceRequest(key);
@@ -107,7 +131,7 @@ public class MultiSliceTest extends SchemaLoader
     @Test
     public void test_with_overlap_reversed_with_count() throws TException
     {
-        ColumnParent cp = new ColumnParent("Standard1");
+        ColumnParent cp = new ColumnParent(CF_STANDARD);
         ByteBuffer key = ByteBuffer.wrap("overlap_reversed_count".getBytes());
         addTheAlphabetToRow(key, cp);
         MultiSliceRequest req = makeMultiSliceRequest(key);

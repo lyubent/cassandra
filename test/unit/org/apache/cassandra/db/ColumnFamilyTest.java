@@ -22,36 +22,61 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.TreeMap;
+import java.util.List;
 
 import com.google.common.collect.Iterables;
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ColumnStats;
 import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static org.apache.cassandra.Util.column;
 import static org.apache.cassandra.Util.cellname;
 import static org.apache.cassandra.Util.tombstone;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 
-public class ColumnFamilyTest extends SchemaLoader
+public class ColumnFamilyTest
 {
     static int version = MessagingService.current_version;
+    private static final String KEYSPACE1 = "ColumnFamilyTest";
+    private static final String CF_STANDARD1 = "Standard1";
 
     // TODO test SuperColumns more
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     @Test
     public void testSingleColumn() throws IOException
     {
         ColumnFamily cf;
 
-        cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("C", "v", 1));
         DataOutputBuffer bufOut = new DataOutputBuffer();
         ColumnFamily.serializer.serialize(cf, bufOut, version);
@@ -59,7 +84,7 @@ public class ColumnFamilyTest extends SchemaLoader
         ByteArrayInputStream bufIn = new ByteArrayInputStream(bufOut.getData(), 0, bufOut.getLength());
         cf = ColumnFamily.serializer.deserialize(new DataInputStream(bufIn), version);
         assert cf != null;
-        assert cf.metadata().cfName.equals("Standard1");
+        assert cf.metadata().cfName.equals(CF_STANDARD1);
         assert cf.getSortedColumns().size() == 1;
     }
 
@@ -75,7 +100,7 @@ public class ColumnFamilyTest extends SchemaLoader
         }
 
         // write
-        cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         DataOutputBuffer bufOut = new DataOutputBuffer();
         for (String cName : map.navigableKeySet())
         {
@@ -97,7 +122,7 @@ public class ColumnFamilyTest extends SchemaLoader
     @Test
     public void testGetColumnCount()
     {
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
 
         cf.addColumn(column("col1", "", 1));
         cf.addColumn(column("col2", "", 2));
@@ -110,8 +135,8 @@ public class ColumnFamilyTest extends SchemaLoader
     @Test
     public void testDigest()
     {
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
-        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
+        ColumnFamily cf2 = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
 
         ByteBuffer digest = ColumnFamily.digest(cf);
 
@@ -152,7 +177,7 @@ public class ColumnFamilyTest extends SchemaLoader
     @Test
     public void testTimestamp()
     {
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
 
         cf.addColumn(column("col1", "val1", 2));
         cf.addColumn(column("col1", "val2", 2)); // same timestamp, new value
@@ -164,9 +189,9 @@ public class ColumnFamilyTest extends SchemaLoader
     @Test
     public void testMergeAndAdd()
     {
-        ColumnFamily cf_new = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
-        ColumnFamily cf_old = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
-        ColumnFamily cf_result = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf_new = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
+        ColumnFamily cf_old = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
+        ColumnFamily cf_result = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         ByteBuffer val = ByteBufferUtil.bytes("sample value");
         ByteBuffer val2 = ByteBufferUtil.bytes("x value ");
 
@@ -202,7 +227,7 @@ public class ColumnFamilyTest extends SchemaLoader
         long timestamp = System.currentTimeMillis();
         int localDeletionTime = (int) (System.currentTimeMillis() / 1000);
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.delete(new DeletionInfo(timestamp, localDeletionTime));
         ColumnStats stats = cf.getColumnStats();
         assertEquals(timestamp, stats.maxTimestamp);

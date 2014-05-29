@@ -27,27 +27,70 @@ import java.io.IOException;
 
 import com.google.common.collect.Iterables;
 import org.apache.commons.lang3.StringUtils;
+import org.junit.BeforeClass;
 import org.junit.Test;
-
 import static org.junit.Assert.*;
+
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.db.marshal.*;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.utils.WrappedRunnable;
+import org.apache.cassandra.Util;
+import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.utils.ByteBufferUtil;
+
 import static org.apache.cassandra.Util.column;
 import static org.apache.cassandra.Util.expiringColumn;
 import static org.apache.cassandra.Util.cellname;
-import org.apache.cassandra.Util;
-import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.utils.ByteBufferUtil;
 
-
-public class KeyspaceTest extends SchemaLoader
+public class KeyspaceTest
 {
     private static final DecoratedKey TEST_KEY = Util.dk("key1");
     private static final DecoratedKey TEST_SLICE_KEY = Util.dk("key1-slicerange");
+
+    private static final String KEYSPACE1 = "KeyspaceTest1";
+    private static final String CF_STANDARD1 = "Standard1";
+    private static final String CF_STANDARD2 = "Standard2";
+    private static final String CF_STANDARDLONG = "StandardLong1";
+    private static final String CF_STANDARDCOMPOSITE2 = "StandardComposite2";
+
+    private static final String KEYSPACE2 = "KeyspaceTest2";
+    private static final String CF_STANDARD3 = "Standard3";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+        AbstractType<?> compositeMaxMin = CompositeType.getInstance(Arrays.asList(new AbstractType<?>[]{BytesType.instance, IntegerType.instance}));
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
+                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDLONG),
+                                           CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDCOMPOSITE2, compositeMaxMin)
+        ));
+        schema.add(KSMetaData.testMetadataNotDurable(KEYSPACE2,
+                                                     simple,
+                                                     KSMetaData.optsWithRF(1),
+                                                     SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD3)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+
+    }
 
     public static void reTest(ColumnFamilyStore cfs, Runnable verify) throws Exception
     {
@@ -59,12 +102,12 @@ public class KeyspaceTest extends SchemaLoader
     @Test
     public void testGetRowNoColumns() throws Throwable
     {
-        final Keyspace keyspace = Keyspace.open("Keyspace2");
-        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard3");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE2);
+        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD3);
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace2", "Standard3");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE2, CF_STANDARD3);
         cf.addColumn(column("col1","val1", 1L));
-        Mutation rm = new Mutation("Keyspace2", TEST_KEY.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE2, TEST_KEY.getKey(), cf);
         rm.apply();
 
         Runnable verify = new WrappedRunnable()
@@ -76,27 +119,27 @@ public class KeyspaceTest extends SchemaLoader
                 cf = cfStore.getColumnFamily(Util.namesQueryFilter(cfStore, TEST_KEY));
                 assertColumns(cf);
 
-                cf = cfStore.getColumnFamily(QueryFilter.getSliceFilter(TEST_KEY, "Standard3", Composites.EMPTY, Composites.EMPTY, false, 0, System.currentTimeMillis()));
+                cf = cfStore.getColumnFamily(QueryFilter.getSliceFilter(TEST_KEY, CF_STANDARD3, Composites.EMPTY, Composites.EMPTY, false, 0, System.currentTimeMillis()));
                 assertColumns(cf);
 
                 cf = cfStore.getColumnFamily(Util.namesQueryFilter(cfStore, TEST_KEY, "col99"));
                 assertColumns(cf);
             }
         };
-        reTest(keyspace.getColumnFamilyStore("Standard3"), verify);
+        reTest(keyspace.getColumnFamilyStore(CF_STANDARD3), verify);
     }
 
     @Test
     public void testGetRowSingleColumn() throws Throwable
     {
-        final Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("col1","val1", 1L));
         cf.addColumn(column("col2","val2", 1L));
         cf.addColumn(column("col3","val3", 1L));
-        Mutation rm = new Mutation("Keyspace1", TEST_KEY.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, TEST_KEY.getKey(), cf);
         rm.apply();
 
         Runnable verify = new WrappedRunnable()
@@ -112,21 +155,21 @@ public class KeyspaceTest extends SchemaLoader
                 assertColumns(cf, "col3");
             }
         };
-        reTest(keyspace.getColumnFamilyStore("Standard1"), verify);
+        reTest(keyspace.getColumnFamilyStore(CF_STANDARD1), verify);
     }
 
     @Test
     public void testGetRowSliceByRange() throws Throwable
     {
     	DecoratedKey key = TEST_SLICE_KEY;
-    	Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+    	Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         // First write "a", "b", "c"
         cf.addColumn(column("a", "val1", 1L));
         cf.addColumn(column("b", "val2", 1L));
         cf.addColumn(column("c", "val3", 1L));
-        Mutation rm = new Mutation("Keyspace1", key.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, key.getKey(), cf);
         rm.apply();
 
         cf = cfStore.getColumnFamily(key, cellname("b"), cellname("c"), false, 100, System.currentTimeMillis());
@@ -142,17 +185,17 @@ public class KeyspaceTest extends SchemaLoader
     @Test
     public void testGetSliceNoMatch() throws Throwable
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard2");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD2);
         cf.addColumn(column("col1", "val1", 1));
-        Mutation rm = new Mutation("Keyspace1", ByteBufferUtil.bytes("row1000"), cf);
+        Mutation rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes("row1000"), cf);
         rm.apply();
 
         validateGetSliceNoMatch(keyspace);
-        keyspace.getColumnFamilyStore("Standard2").forceBlockingFlush();
+        keyspace.getColumnFamilyStore(CF_STANDARD2).forceBlockingFlush();
         validateGetSliceNoMatch(keyspace);
 
-        Collection<SSTableReader> ssTables = keyspace.getColumnFamilyStore("Standard2").getSSTables();
+        Collection<SSTableReader> ssTables = keyspace.getColumnFamilyStore(CF_STANDARD2).getSSTables();
         assertEquals(1, ssTables.size());
         ssTables.iterator().next().forceFilterFailures();
         validateGetSliceNoMatch(keyspace);
@@ -162,17 +205,17 @@ public class KeyspaceTest extends SchemaLoader
     public void testGetSliceWithCutoff() throws Throwable
     {
         // tests slicing against data from one row in a memtable and then flushed to an sstable
-        final Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
         final DecoratedKey ROW = Util.dk("row4");
         final NumberFormat fmt = new DecimalFormat("000");
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         // at this rate, we're getting 78-79 cos/block, assuming the blocks are set to be about 4k.
         // so if we go to 300, we'll get at least 4 blocks, which is plenty for testing.
         for (int i = 0; i < 300; i++)
             cf.addColumn(column("col" + fmt.format(i), "omg!thisisthevalue!"+i, 1L));
-        Mutation rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
         rm.apply();
 
         Runnable verify = new WrappedRunnable()
@@ -213,21 +256,21 @@ public class KeyspaceTest extends SchemaLoader
             }
         };
 
-        reTest(keyspace.getColumnFamilyStore("Standard1"), verify);
+        reTest(keyspace.getColumnFamilyStore(CF_STANDARD1), verify);
     }
 
     @Test
     public void testReversedWithFlushing()
     {
-        final Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("StandardLong1");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDLONG);
         final DecoratedKey ROW = Util.dk("row4");
 
         for (int i = 0; i < 10; i++)
         {
-            ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "StandardLong1");
+            ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARDLONG);
             cf.addColumn(new BufferCell(cellname((long)i), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0));
-            Mutation rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+            Mutation rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
             rm.apply();
         }
 
@@ -235,9 +278,9 @@ public class KeyspaceTest extends SchemaLoader
 
         for (int i = 10; i < 20; i++)
         {
-            ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "StandardLong1");
+            ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARDLONG);
             cf.addColumn(new BufferCell(cellname((long)i), ByteBufferUtil.EMPTY_BYTE_BUFFER, 0));
-            Mutation rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+            Mutation rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
             rm.apply();
 
             cf = cfs.getColumnFamily(ROW, Composites.EMPTY, Composites.EMPTY, true, 1, System.currentTimeMillis());
@@ -248,7 +291,7 @@ public class KeyspaceTest extends SchemaLoader
 
     private void validateGetSliceNoMatch(Keyspace keyspace)
     {
-        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard2");
+        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD2);
         ColumnFamily cf;
 
         // key before the rows that exists
@@ -264,22 +307,22 @@ public class KeyspaceTest extends SchemaLoader
     public void testGetSliceFromBasic() throws Throwable
     {
         // tests slicing against data from one row in a memtable and then flushed to an sstable
-        final Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
         final DecoratedKey ROW = Util.dk("row1");
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("col1", "val1", 1L));
         cf.addColumn(column("col3", "val3", 1L));
         cf.addColumn(column("col4", "val4", 1L));
         cf.addColumn(column("col5", "val5", 1L));
         cf.addColumn(column("col7", "val7", 1L));
         cf.addColumn(column("col9", "val9", 1L));
-        Mutation rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
         rm.apply();
 
-        rm = new Mutation("Keyspace1", ROW.getKey());
-        rm.delete("Standard1", cellname("col4"), 2L);
+        rm = new Mutation(KEYSPACE1, ROW.getKey());
+        rm.delete(CF_STANDARD1, cellname("col4"), 2L);
         rm.apply();
 
         Runnable verify = new WrappedRunnable()
@@ -312,22 +355,22 @@ public class KeyspaceTest extends SchemaLoader
             }
         };
 
-        reTest(keyspace.getColumnFamilyStore("Standard1"), verify);
+        reTest(keyspace.getColumnFamilyStore(CF_STANDARD1), verify);
     }
 
     @Test
     public void testGetSliceWithExpiration() throws Throwable
     {
         // tests slicing against data from one row with expiring column in a memtable and then flushed to an sstable
-        final Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
         final DecoratedKey ROW = Util.dk("row5");
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("col1", "val1", 1L));
         cf.addColumn(expiringColumn("col2", "val2", 1L, 60)); // long enough not to be tombstoned
         cf.addColumn(column("col3", "val3", 1L));
-        Mutation rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
         rm.apply();
 
         Runnable verify = new WrappedRunnable()
@@ -346,33 +389,33 @@ public class KeyspaceTest extends SchemaLoader
             }
         };
 
-        reTest(keyspace.getColumnFamilyStore("Standard1"), verify);
+        reTest(keyspace.getColumnFamilyStore(CF_STANDARD1), verify);
     }
 
     @Test
     public void testGetSliceFromAdvanced() throws Throwable
     {
         // tests slicing against data from one row spread across two sstables
-        final Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        final Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
         final DecoratedKey ROW = Util.dk("row2");
 
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("col1", "val1", 1L));
         cf.addColumn(column("col2", "val2", 1L));
         cf.addColumn(column("col3", "val3", 1L));
         cf.addColumn(column("col4", "val4", 1L));
         cf.addColumn(column("col5", "val5", 1L));
         cf.addColumn(column("col6", "val6", 1L));
-        Mutation rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
         rm.apply();
         cfStore.forceBlockingFlush();
 
-        cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         cf.addColumn(column("col1", "valx", 2L));
         cf.addColumn(column("col2", "valx", 2L));
         cf.addColumn(column("col3", "valx", 2L));
-        rm = new Mutation("Keyspace1", ROW.getKey(), cf);
+        rm = new Mutation(KEYSPACE1, ROW.getKey(), cf);
         rm.apply();
 
         Runnable verify = new WrappedRunnable()
@@ -395,20 +438,20 @@ public class KeyspaceTest extends SchemaLoader
             }
         };
 
-        reTest(keyspace.getColumnFamilyStore("Standard1"), verify);
+        reTest(keyspace.getColumnFamilyStore(CF_STANDARD1), verify);
     }
 
     @Test
     public void testGetSliceFromLarge() throws Throwable
     {
         // tests slicing against 1000 columns in an sstable
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
         DecoratedKey key = Util.dk("row3");
-        ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
         for (int i = 1000; i < 2000; i++)
             cf.addColumn(column("col" + i, ("v" + i), 1L));
-        Mutation rm = new Mutation("Keyspace1", key.getKey(), cf);
+        Mutation rm = new Mutation(KEYSPACE1, key.getKey(), cf);
         rm.apply();
         cfStore.forceBlockingFlush();
 
@@ -430,18 +473,18 @@ public class KeyspaceTest extends SchemaLoader
     @Test
     public void testLimitSSTables() throws CharacterCodingException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore("Standard1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore cfStore = keyspace.getColumnFamilyStore(CF_STANDARD1);
         cfStore.disableAutoCompaction();
         DecoratedKey key = Util.dk("row_maxmin");
         for (int j = 0; j < 10; j++)
         {
-            ColumnFamily cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+            ColumnFamily cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
             for (int i = 1000 + (j*100); i < 1000 + ((j+1)*100); i++)
             {
                 cf.addColumn(column("col" + i, ("v" + i), i));
             }
-            Mutation rm = new Mutation("Keyspace1", key.getKey(), cf);
+            Mutation rm = new Mutation(KEYSPACE1, key.getKey(), cf);
             rm.apply();
             cfStore.forceBlockingFlush();
         }
@@ -494,9 +537,9 @@ public class KeyspaceTest extends SchemaLoader
         ---------------------
         then we slice out col1 = a5 and col2 > 85 -> which should let us just check 2 sstables and get 2 columns
          */
-        Keyspace keyspace = Keyspace.open("Keyspace1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
 
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("StandardComposite2");
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDCOMPOSITE2);
         cfs.disableAutoCompaction();
 
         CellNameType type = cfs.getComparator();
@@ -505,9 +548,9 @@ public class KeyspaceTest extends SchemaLoader
         {
             for (int i = 0; i < 10; i++)
             {
-                Mutation rm = new Mutation("Keyspace1", key.getKey());
+                Mutation rm = new Mutation(KEYSPACE1, key.getKey());
                 CellName colName = type.makeCellName(ByteBufferUtil.bytes("a" + i), ByteBufferUtil.bytes(j*10 + i));
-                rm.add("StandardComposite2", colName, ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
+                rm.add(CF_STANDARDCOMPOSITE2, colName, ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
                 rm.apply();
             }
             cfs.forceBlockingFlush();
@@ -599,7 +642,6 @@ public class KeyspaceTest extends SchemaLoader
 
         String[] columnNames1 = names.toArray(new String[0]);
         String[] la = L.toArray(new String[cells.size()]);
-
         assert Arrays.equals(la, columnNames1)
                 : String.format("Columns [%s])] is not expected [%s]",
                                 ((container == null) ? "" : CellNames.getColumnsString(container.getComparator(), cells)),

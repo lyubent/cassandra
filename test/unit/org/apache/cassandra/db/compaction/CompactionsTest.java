@@ -18,25 +18,29 @@
 */
 package org.apache.cassandra.db.compaction;
 
+import java.io.File;
+import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+
+import com.google.common.base.Function;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Sets;
+
+import org.junit.BeforeClass;
+import org.junit.Ignore;
+import org.junit.Test;
+import org.junit.runner.RunWith;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotNull;
 
-import java.io.File;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
@@ -49,32 +53,62 @@ import org.apache.cassandra.db.SuperColumns;
 import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.db.marshal.*;
 import org.apache.cassandra.dht.BytesToken;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
-import org.junit.Ignore;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-
-import com.google.common.base.Function;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class CompactionsTest extends SchemaLoader
 {
     public static final String KEYSPACE1 = "Keyspace1";
+    private static final String CF_STANDARD1 = "Standard1";
+    private static final String CF_STANDARD2 = "Standard2";
+    private static final String CF_STANDARD3 = "Standard3";
+    private static final String CF_STANDARD4 = "Standard4";
+    private static final String CF_SUPER1 = "Super1";
+    private static final String CF_SUPER5 = "Super5";
+    private static final String CF_SUPERGC = "SuperDirectGC";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+        // compaction options.
+        Map<String, String> compactionOptions = new HashMap<>();
+        compactionOptions.put("tombstone_compaction_interval", "1");
+
+        // Keyspace 1
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                   simple,
+                   KSMetaData.optsWithRF(1),
+                   standardCFMD(KEYSPACE1, CF_STANDARD1).compactionStrategyOptions(compactionOptions),
+                   standardCFMD(KEYSPACE1, CF_STANDARD2),
+                   standardCFMD(KEYSPACE1, CF_STANDARD3),
+                   standardCFMD(KEYSPACE1, CF_STANDARD4),
+                   superCFMD(KEYSPACE1, CF_SUPER1, LongType.instance),
+                   superCFMD(KEYSPACE1, CF_SUPER5, BytesType.instance),
+                   superCFMD(KEYSPACE1, CF_SUPERGC, BytesType.instance).gcGraceSeconds(0)));
+        startGossiper();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     public ColumnFamilyStore testSingleSSTableCompaction(String strategyClassName) throws Exception
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD1);
         store.clearUnsafe();
         store.metadata.gcGraceSeconds(1);
         store.setCompactionStrategyClass(strategyClassName);
@@ -88,7 +122,7 @@ public class CompactionsTest extends SchemaLoader
             DecoratedKey key = Util.dk(Integer.toString(i));
             Mutation rm = new Mutation(KEYSPACE1, key.getKey());
             for (int j = 0; j < 10; j++)
-                rm.add("Standard1", Util.cellname(Integer.toString(j)),
+                rm.add(CF_STANDARD1, Util.cellname(Integer.toString(j)),
                        ByteBufferUtil.EMPTY_BYTE_BUFFER,
                        timestamp,
                        j > 0 ? 3 : 0); // let first column never expire, since deleting all columns does not produce sstable
@@ -140,7 +174,7 @@ public class CompactionsTest extends SchemaLoader
     public void testSuperColumnTombstones() throws ExecutionException, InterruptedException
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("Super1");
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_SUPER1);
         cfs.disableAutoCompaction();
 
         DecoratedKey key = Util.dk("tskey");
@@ -148,7 +182,7 @@ public class CompactionsTest extends SchemaLoader
 
         // a subcolumn
         Mutation rm = new Mutation(KEYSPACE1, key.getKey());
-        rm.add("Super1", Util.cellname(scName, ByteBufferUtil.bytes(0)),
+        rm.add(CF_SUPER1, Util.cellname(scName, ByteBufferUtil.bytes(0)),
                ByteBufferUtil.EMPTY_BYTE_BUFFER,
                FBUtilities.timestampMicros());
         rm.apply();
@@ -156,7 +190,7 @@ public class CompactionsTest extends SchemaLoader
 
         // shadow the subcolumn with a supercolumn tombstone
         rm = new Mutation(KEYSPACE1, key.getKey());
-        rm.deleteRange("Super1", SuperColumns.startOf(scName), SuperColumns.endOf(scName), FBUtilities.timestampMicros());
+        rm.deleteRange(CF_SUPER1, SuperColumns.startOf(scName), SuperColumns.endOf(scName), FBUtilities.timestampMicros());
         rm.apply();
         cfs.forceBlockingFlush();
 
@@ -187,7 +221,7 @@ public class CompactionsTest extends SchemaLoader
         // This test check that EchoedRow doesn't skipp rows: see CASSANDRA-2653
 
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("Standard2");
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD2);
 
         // disable compaction while flushing
         cfs.disableAutoCompaction();
@@ -198,7 +232,7 @@ public class CompactionsTest extends SchemaLoader
         {
             DecoratedKey key = Util.dk(String.valueOf(i));
             Mutation rm = new Mutation(KEYSPACE1, key.getKey());
-            rm.add("Standard2", Util.cellname(String.valueOf(i)), ByteBufferUtil.EMPTY_BYTE_BUFFER, i);
+            rm.add(CF_STANDARD2, Util.cellname(String.valueOf(i)), ByteBufferUtil.EMPTY_BYTE_BUFFER, i);
             rm.apply();
 
             if (i % 2 == 0)
@@ -213,7 +247,7 @@ public class CompactionsTest extends SchemaLoader
         {
             DecoratedKey key = Util.dk(String.valueOf(i));
             Mutation rm = new Mutation(KEYSPACE1, key.getKey());
-            rm.add("Standard2", Util.cellname(String.valueOf(i)), ByteBufferUtil.EMPTY_BYTE_BUFFER, i);
+            rm.add(CF_STANDARD2, Util.cellname(String.valueOf(i)), ByteBufferUtil.EMPTY_BYTE_BUFFER, i);
             rm.apply();
         }
         cfs.forceBlockingFlush();
@@ -238,17 +272,17 @@ public class CompactionsTest extends SchemaLoader
     @Test
     public void testDontPurgeAccidentaly() throws InterruptedException
     {
-        testDontPurgeAccidentaly("test1", "Super5");
+        testDontPurgeAccidentaly("test1", CF_SUPER5);
 
         // Use CF with gc_grace=0, see last bug of CASSANDRA-2786
-        testDontPurgeAccidentaly("test1", "SuperDirectGC");
+        testDontPurgeAccidentaly("test1", CF_SUPERGC);
     }
 
     @Test
     public void testUserDefinedCompaction() throws Exception
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        final String cfname = "Standard3"; // use clean(no sstable) CF
+        final String cfname = CF_STANDARD3; // use clean(no sstable) CF
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfname);
 
         // disable compaction while flushing
@@ -289,7 +323,7 @@ public class CompactionsTest extends SchemaLoader
     {
         SystemKeyspace.discardCompactionsInProgress();
 
-        String cf = "Standard4";
+        String cf = CF_STANDARD4;
         ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(cf);
         insertData(KEYSPACE1, cf, 0, 1);
         cfs.forceBlockingFlush();
@@ -380,7 +414,7 @@ public class CompactionsTest extends SchemaLoader
         long timestamp = System.currentTimeMillis();
         DecoratedKey decoratedKey = Util.dk(String.format("%03d", key));
         Mutation rm = new Mutation(KEYSPACE1, decoratedKey.getKey());
-        rm.add("Standard1", Util.cellname("col"), ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp, 1000);
+        rm.add(CF_STANDARD1, Util.cellname("col"), ByteBufferUtil.EMPTY_BYTE_BUFFER, timestamp, 1000);
         rm.apply();
     }
 
@@ -389,7 +423,7 @@ public class CompactionsTest extends SchemaLoader
     public void testNeedsCleanup()
     {
         Keyspace keyspace = Keyspace.open(KEYSPACE1);
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD1);
         store.clearUnsafe();
 
         // disable compaction while flushing

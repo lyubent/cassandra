@@ -19,11 +19,6 @@
  */
 package org.apache.cassandra;
 
-import org.apache.cassandra.io.IVersionedSerializer;
-import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
-import org.apache.cassandra.net.MessagingService;
-
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -31,6 +26,11 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.apache.cassandra.io.IVersionedSerializer;
+import org.apache.cassandra.io.util.DataOutputBuffer;
+import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
+import org.apache.cassandra.net.MessagingService;
 
 public class AbstractSerializationsTester extends SchemaLoader
 {

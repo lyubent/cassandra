@@ -22,19 +22,24 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.*;
 import org.apache.cassandra.db.columniterator.IdentityQueryFilter;
 import org.apache.cassandra.db.marshal.AbstractType;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.dht.*;
-import org.apache.cassandra.config.*;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.*;
-import static org.apache.cassandra.Util.dk;
 
+import static org.apache.cassandra.Util.dk;
 
 /**
  * Test cases where multiple keys collides, ie have the same token.
@@ -43,11 +48,28 @@ import static org.apache.cassandra.Util.dk;
  * length partitioner that takes the length of the key as token, making
  * collision easy and predictable.
  */
-public class KeyCollisionTest extends SchemaLoader
+public class KeyCollisionTest
 {
     IPartitioner oldPartitioner;
-    private static final String KEYSPACE = "Keyspace1";
+    private static final String KEYSPACE = "KeyCollisionTest";
     private static final String CF = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE, CF)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
+
 
     protected void setUp()
     {

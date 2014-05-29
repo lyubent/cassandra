@@ -17,31 +17,56 @@
  */
 package org.apache.cassandra.streaming;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.FBUtilities;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import org.apache.thrift.TException;
 
 public class StreamTransferTaskTest extends SchemaLoader
 {
+    public static final String KEYSPACE1 = "StreamTransferTaskTest";
+    public static final String CF_STANDARD = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException, IOException, TException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           standardCFMD(KEYSPACE1, CF_STANDARD)));
+        startGossiper();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
+
     @Test
     public void testScheduleTimeout() throws Exception
     {
-        String ks = "Keyspace1";
-        String cf = "Standard1";
+        String ks = KEYSPACE1;
+        String cf = CF_STANDARD;
 
         StreamSession session = new StreamSession(FBUtilities.getBroadcastAddress(), 0);
         ColumnFamilyStore cfs = Keyspace.open(ks).getColumnFamilyStore(cf);

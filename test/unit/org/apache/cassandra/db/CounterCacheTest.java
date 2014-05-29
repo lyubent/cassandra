@@ -17,37 +17,61 @@
  */
 package org.apache.cassandra.db;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
-
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.exceptions.WriteTimeoutException;
-import org.apache.cassandra.service.CacheService;
-import org.apache.cassandra.utils.FBUtilities;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
+
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.marshal.CounterColumnType;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.exceptions.WriteTimeoutException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.CacheService;
+import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.utils.FBUtilities;
 
 import static org.apache.cassandra.Util.cellname;
 import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
-public class CounterCacheTest extends SchemaLoader
+public class CounterCacheTest
 {
-    private static final String KS = "CounterCacheSpace";
+    private static final String KEYSPACE = "CounterCacheTest";
     private static final String CF = "Counter1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           SchemaLoader.standardCFMD(KEYSPACE, CF).defaultValidator(CounterColumnType.instance)));
+        SchemaLoader.startGossiper();
+        SchemaLoader.initSchema();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     @AfterClass
     public static void cleanup()
     {
-        cleanupSavedCaches();
+        SchemaLoader.cleanupSavedCaches();
     }
 
     @Test
     public void testReadWrite()
     {
-        ColumnFamilyStore cfs = Keyspace.open(KS).getColumnFamilyStore(CF);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF);
         CacheService.instance.invalidateCounterCache();
 
         assertEquals(0, CacheService.instance.counterCache.size());
@@ -71,14 +95,14 @@ public class CounterCacheTest extends SchemaLoader
     @Test
     public void testSaveLoad() throws ExecutionException, InterruptedException, WriteTimeoutException
     {
-        ColumnFamilyStore cfs = Keyspace.open(KS).getColumnFamilyStore(CF);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF);
         CacheService.instance.invalidateCounterCache();
 
         ColumnFamily cells = ArrayBackedSortedColumns.factory.create(cfs.metadata);
         cells.addColumn(new BufferCounterUpdateCell(cellname(1), 1L, FBUtilities.timestampMicros()));
         cells.addColumn(new BufferCounterUpdateCell(cellname(2), 2L, FBUtilities.timestampMicros()));
-        new CounterMutation(new Mutation(KS, bytes(1), cells), ConsistencyLevel.ONE).apply();
-        new CounterMutation(new Mutation(KS, bytes(2), cells), ConsistencyLevel.ONE).apply();
+        new CounterMutation(new Mutation(KEYSPACE, bytes(1), cells), ConsistencyLevel.ONE).apply();
+        new CounterMutation(new Mutation(KEYSPACE, bytes(2), cells), ConsistencyLevel.ONE).apply();
 
         // flush the counter cache and invalidate
         CacheService.instance.counterCache.submitWrite(Integer.MAX_VALUE).get();

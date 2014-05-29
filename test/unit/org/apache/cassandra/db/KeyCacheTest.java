@@ -17,35 +17,54 @@
  */
 package org.apache.cassandra.db;
 
-import java.nio.file.Files;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.cache.KeyCacheKey;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.CacheService;
+import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-import static org.junit.Assert.assertEquals;
 
 public class KeyCacheTest extends SchemaLoader
 {
-    private static final String KEYSPACE1 = "KeyCacheSpace";
+    private static final String KEYSPACE1 = "KeyCacheTest";
     private static final String COLUMN_FAMILY1 = "Standard1";
     private static final String COLUMN_FAMILY2 = "Standard2";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        List<KSMetaData> schema = new ArrayList<>();
+        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
+
+        schema.add(KSMetaData.testMetadata(KEYSPACE1,
+                                           simple,
+                                           KSMetaData.optsWithRF(1),
+                                           standardCFMD(KEYSPACE1, COLUMN_FAMILY1),
+                                           standardCFMD(KEYSPACE1, COLUMN_FAMILY2)));
+        startGossiper();
+        for (KSMetaData ksm : schema)
+            MigrationManager.announceNewKeyspace(ksm);
+    }
 
     @AfterClass
     public static void cleanup()
