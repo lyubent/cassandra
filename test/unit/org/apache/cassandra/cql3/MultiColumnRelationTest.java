@@ -17,6 +17,17 @@
  */
 package org.apache.cassandra.cql3;
 
+import java.nio.ByteBuffer;
+import java.util.*;
+
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
+import org.junit.Test;
+import static com.google.common.collect.Lists.newArrayList;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
+
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.cql3.statements.ParsedStatement;
 import org.apache.cassandra.db.ConsistencyLevel;
@@ -32,25 +43,12 @@ import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.MD5Digest;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.nio.ByteBuffer;
-import java.util.*;
 
 import static org.apache.cassandra.cql3.QueryProcessor.executeOnceInternal;
 import static org.apache.cassandra.cql3.QueryProcessor.process;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertEquals;
-import static com.google.common.collect.Lists.newArrayList;
-import static org.junit.Assert.fail;
 
 public class MultiColumnRelationTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(MultiColumnRelationTest.class);
     static ClientState clientState;
     static String keyspace = "multi_column_relation_test";
 

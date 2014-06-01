@@ -35,9 +35,7 @@ import org.apache.cassandra.db.marshal.AsciiType;
 import org.apache.cassandra.db.marshal.UTF8Type;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.compress.*;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.CfDef;
 import org.apache.cassandra.thrift.ColumnDef;
@@ -66,17 +64,10 @@ public class CFMetaDataTest
     // The aim here is to replace creating all the kss and their cfs in SchemaLoader#schemaDefinition
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1));
     }
 
     @Test

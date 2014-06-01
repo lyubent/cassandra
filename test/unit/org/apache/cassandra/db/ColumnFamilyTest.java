@@ -22,9 +22,7 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.TreeMap;
-import java.util.List;
 
 import com.google.common.collect.Iterables;
 import org.junit.BeforeClass;
@@ -37,10 +35,8 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.ColumnStats;
 import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 import static org.apache.cassandra.Util.column;
@@ -58,17 +54,10 @@ public class ColumnFamilyTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1));
     }
 
     @Test

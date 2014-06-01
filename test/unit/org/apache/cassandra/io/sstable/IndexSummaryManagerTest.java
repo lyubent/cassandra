@@ -40,10 +40,8 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.metrics.RestorableMeter;
-import org.apache.cassandra.service.MigrationManager;
 
 import static org.apache.cassandra.io.sstable.Downsampling.BASE_SAMPLING_LEVEL;
 import static org.apache.cassandra.io.sstable.IndexSummaryManager.DOWNSAMPLE_THESHOLD;
@@ -63,19 +61,12 @@ public class IndexSummaryManagerTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDLOW2iINTERVAL).minIndexInterval(8)
-                                                                                                         .maxIndexInterval(256)
-                                                                                                         .caching(CachingOptions.NONE)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDLOW2iINTERVAL).minIndexInterval(8)
+                                                                                                  .maxIndexInterval(256)
+                                                                                                  .caching(CachingOptions.NONE));
     }
 
     @Before

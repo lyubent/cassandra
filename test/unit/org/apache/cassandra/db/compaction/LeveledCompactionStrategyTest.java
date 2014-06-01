@@ -38,12 +38,10 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.repair.RepairJobDesc;
 import org.apache.cassandra.repair.Validator;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.FBUtilities;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
@@ -57,21 +55,14 @@ public class LeveledCompactionStrategyTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
         Map<String, String> leveledOptions = new HashMap<>();
         leveledOptions.put("sstable_size_in_mb", "1");
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
-                                                       .compactionStrategyClass(LeveledCompactionStrategy.class)
-                                                       .compactionStrategyOptions(leveledOptions)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDDLEVELED)
+                                                .compactionStrategyClass(LeveledCompactionStrategy.class)
+                                                .compactionStrategyOptions(leveledOptions));
     }
 
     @Before

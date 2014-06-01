@@ -19,9 +19,6 @@ package org.apache.cassandra.db;
  * under the License.
  *
  */
-import java.util.ArrayList;
-import java.util.List;
-
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -32,9 +29,7 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.commitlog.CommitLog;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
@@ -50,18 +45,11 @@ public class RecoveryManager2Test
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2));
     }
 
     @Test

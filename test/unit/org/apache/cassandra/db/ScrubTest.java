@@ -54,9 +54,7 @@ import org.apache.cassandra.exceptions.WriteTimeoutException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.UUIDGen;
 
@@ -76,21 +74,14 @@ public class ScrubTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD1),
-                                           SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD2),
-                                           SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD3),
-                                           CFMetaData.denseCFMetaData(KEYSPACE, "Counter1", BytesType.instance).defaultValidator(CounterColumnType.instance),
-                                           SchemaLoader.standardCFMD(KEYSPACE, "UUIDKeys").keyValidator(UUIDType.instance)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD2),
+                                    SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD3),
+                                    CFMetaData.denseCFMetaData(KEYSPACE, "Counter1", BytesType.instance).defaultValidator(CounterColumnType.instance),
+                                    SchemaLoader.standardCFMD(KEYSPACE, "UUIDKeys").keyValidator(UUIDType.instance));
     }
 
     @Test

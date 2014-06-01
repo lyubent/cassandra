@@ -35,15 +35,13 @@ import org.apache.cassandra.exceptions.SyntaxException;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellNames;
 import org.apache.cassandra.db.filter.QueryFilter;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.*;
 
 public class CompositeTypeTest
 {
-    private static final String KEYSPACE = "CompositeTypeTest";
+    private static final String KEYSPACE1 = "CompositeTypeTest";
     private static final String CF_STANDARDCOMPOSITE = "StandardComposite";
     private static final CompositeType comparator;
     static
@@ -66,18 +64,11 @@ public class CompositeTypeTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
         AbstractType<?> composite = CompositeType.getInstance(Arrays.asList(new AbstractType<?>[]{BytesType.instance, TimeUUIDType.instance, IntegerType.instance}));
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           CFMetaData.denseCFMetaData(KEYSPACE, CF_STANDARDCOMPOSITE, composite)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDCOMPOSITE, composite));
     }
 
     @Test
@@ -185,7 +176,7 @@ public class CompositeTypeTest
     @Test
     public void testFullRound() throws Exception
     {
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDCOMPOSITE);
 
         ByteBuffer cname1 = createCompositeKey("test1", null, -1, false);
@@ -195,7 +186,7 @@ public class CompositeTypeTest
         ByteBuffer cname5 = createCompositeKey("test2", uuids[1], 42, false);
 
         ByteBuffer key = ByteBufferUtil.bytes("k");
-        Mutation rm = new Mutation(KEYSPACE, key);
+        Mutation rm = new Mutation(KEYSPACE1, key);
         addColumn(rm, cname5);
         addColumn(rm, cname1);
         addColumn(rm, cname4);

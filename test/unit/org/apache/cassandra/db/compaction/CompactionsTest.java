@@ -61,9 +61,7 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableScanner;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.Pair;
@@ -83,26 +81,18 @@ public class CompactionsTest extends SchemaLoader
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-        // compaction options.
         Map<String, String> compactionOptions = new HashMap<>();
         compactionOptions.put("tombstone_compaction_interval", "1");
-
-        // Keyspace 1
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   standardCFMD(KEYSPACE1, CF_STANDARD1).compactionStrategyOptions(compactionOptions),
-                   standardCFMD(KEYSPACE1, CF_STANDARD2),
-                   standardCFMD(KEYSPACE1, CF_STANDARD3),
-                   standardCFMD(KEYSPACE1, CF_STANDARD4),
-                   superCFMD(KEYSPACE1, CF_SUPER1, LongType.instance),
-                   superCFMD(KEYSPACE1, CF_SUPER5, BytesType.instance),
-                   superCFMD(KEYSPACE1, CF_SUPERGC, BytesType.instance).gcGraceSeconds(0)));
-        startGossiper();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        createKeyspace(KEYSPACE1,
+                       SimpleStrategy.class,
+                       KSMetaData.optsWithRF(1),
+                       standardCFMD(KEYSPACE1, CF_STANDARD1).compactionStrategyOptions(compactionOptions),
+                       standardCFMD(KEYSPACE1, CF_STANDARD2),
+                       standardCFMD(KEYSPACE1, CF_STANDARD3),
+                       standardCFMD(KEYSPACE1, CF_STANDARD4),
+                       superCFMD(KEYSPACE1, CF_SUPER1, LongType.instance),
+                       superCFMD(KEYSPACE1, CF_SUPER5, BytesType.instance),
+                       superCFMD(KEYSPACE1, CF_SUPERGC, BytesType.instance).gcGraceSeconds(0));
     }
 
     public ColumnFamilyStore testSingleSSTableCompaction(String strategyClassName) throws Exception

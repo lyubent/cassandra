@@ -20,9 +20,7 @@ package org.apache.cassandra.db;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -39,11 +37,9 @@ import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.dht.BytesToken;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.CacheService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import static org.junit.Assert.assertEquals;
@@ -57,20 +53,14 @@ public class RowCacheTest extends SchemaLoader
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE_CACHED,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           standardCFMD(KEYSPACE_CACHED, CF_CACHED).caching(CachingOptions.ALL),
-                                           standardCFMD(KEYSPACE_CACHED, CF_CACHEDINT).
-                                                        defaultValidator(IntegerType.instance).
-                                                        caching(new CachingOptions(new CachingOptions.KeyCache(CachingOptions.KeyCache.Type.ALL),
-                                                                new CachingOptions.RowCache(CachingOptions.RowCache.Type.HEAD, 100)))));
-        startGossiper();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        createKeyspace(KEYSPACE_CACHED,
+                       SimpleStrategy.class,
+                       KSMetaData.optsWithRF(1),
+                       standardCFMD(KEYSPACE_CACHED, CF_CACHED).caching(CachingOptions.ALL),
+                       standardCFMD(KEYSPACE_CACHED, CF_CACHEDINT).
+                                    defaultValidator(IntegerType.instance).
+                                    caching(new CachingOptions(new CachingOptions.KeyCache(CachingOptions.KeyCache.Type.ALL),
+                                            new CachingOptions.RowCache(CachingOptions.RowCache.Type.HEAD, 100))));
     }
 
     @AfterClass

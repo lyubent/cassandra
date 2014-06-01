@@ -35,43 +35,35 @@ import org.apache.cassandra.db.filter.NamesQueryFilter;
 import org.apache.cassandra.db.filter.SliceQueryFilter;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.DataOutputBuffer;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 
 public class ReadMessageTest
 {
-    private static final String KEYSPACE = "ReadMessageTest";
+    private static final String KEYSPACE1 = "ReadMessageTest1";
     private static final String KEYSPACENOCOMMIT = "ReadMessageTest_NoCommit";
     private static final String CF = "Standard1";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   SchemaLoader.standardCFMD(KEYSPACE, CF)));
-        schema.add(KSMetaData.testMetadataNotDurable(KEYSPACENOCOMMIT,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   SchemaLoader.standardCFMD(KEYSPACENOCOMMIT, CF)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF));
+        SchemaLoader.createKeyspace(KEYSPACENOCOMMIT,
+                                    false,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACENOCOMMIT, CF));
     }
 
     @Test
     public void testMakeReadMessage() throws IOException
     {
-        CellNameType type = Keyspace.open(KEYSPACE).getColumnFamilyStore(CF).getComparator();
+        CellNameType type = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF).getComparator();
 
         SortedSet<CellName> colList = new TreeSet<CellName>(type);
         colList.add(Util.cellname("col1"));
@@ -81,15 +73,15 @@ public class ReadMessageTest
         DecoratedKey dk = Util.dk("row1");
         long ts = System.currentTimeMillis();
 
-        rm = new SliceByNamesReadCommand(KEYSPACE, dk.getKey(), CF, ts, new NamesQueryFilter(colList));
+        rm = new SliceByNamesReadCommand(KEYSPACE1, dk.getKey(), CF, ts, new NamesQueryFilter(colList));
         rm2 = serializeAndDeserializeReadMessage(rm);
         assert rm2.toString().equals(rm.toString());
 
-        rm = new SliceFromReadCommand(KEYSPACE, dk.getKey(), CF, ts, new SliceQueryFilter(Composites.EMPTY, Composites.EMPTY, true, 2));
+        rm = new SliceFromReadCommand(KEYSPACE1, dk.getKey(), CF, ts, new SliceQueryFilter(Composites.EMPTY, Composites.EMPTY, true, 2));
         rm2 = serializeAndDeserializeReadMessage(rm);
         assert rm2.toString().equals(rm.toString());
 
-        rm = new SliceFromReadCommand(KEYSPACE, dk.getKey(), CF, ts, new SliceQueryFilter(Util.cellname("a"), Util.cellname("z"), true, 5));
+        rm = new SliceFromReadCommand(KEYSPACE1, dk.getKey(), CF, ts, new SliceQueryFilter(Util.cellname("a"), Util.cellname("z"), true, 5));
         rm2 = serializeAndDeserializeReadMessage(rm);
         assert rm2.toString().equals(rm.toString());
     }
@@ -108,17 +100,17 @@ public class ReadMessageTest
     @Test
     public void testGetColumn()
     {
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
         CellNameType type = keyspace.getColumnFamilyStore(CF).getComparator();
         Mutation rm;
         DecoratedKey dk = Util.dk("key1");
 
         // add data
-        rm = new Mutation(KEYSPACE, dk.getKey());
+        rm = new Mutation(KEYSPACE1, dk.getKey());
         rm.add(CF, Util.cellname("Column1"), ByteBufferUtil.bytes("abcd"), 0);
         rm.apply();
 
-        ReadCommand command = new SliceByNamesReadCommand(KEYSPACE, dk.getKey(), CF, System.currentTimeMillis(), new NamesQueryFilter(FBUtilities.singleton(Util.cellname("Column1"), type)));
+        ReadCommand command = new SliceByNamesReadCommand(KEYSPACE1, dk.getKey(), CF, System.currentTimeMillis(), new NamesQueryFilter(FBUtilities.singleton(Util.cellname("Column1"), type)));
         Row row = command.getRow(keyspace);
         Cell col = row.cf.getColumn(Util.cellname("Column1"));
         assertEquals(col.value(), ByteBuffer.wrap("abcd".getBytes()));
@@ -127,7 +119,7 @@ public class ReadMessageTest
     @Test
     public void testNoCommitLog() throws Exception
     {
-        Mutation rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes("row"));
+        Mutation rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes("row"));
         rm.add(CF, Util.cellname("commit1"), ByteBufferUtil.bytes("abcd"), 0);
         rm.apply();
 

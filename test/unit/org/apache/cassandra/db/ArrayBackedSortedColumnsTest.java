@@ -34,31 +34,22 @@ import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.filter.ColumnSlice;
 import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.SearchIterator;
 
 public class ArrayBackedSortedColumnsTest
 {
-    private static final String KEYSPACE = "ArrayBackedSortedColumnsTest";
+    private static final String KEYSPACE1 = "ArrayBackedSortedColumnsTest";
+    private static final String CF_STANDARD1 = "Standard1";
 
     @BeforeClass
-    // The aim here is to replace creating all the kss and their cfs in SchemaLoader#schemaDefinition
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard1")));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1));
     }
 
     @Test
@@ -70,7 +61,7 @@ public class ArrayBackedSortedColumnsTest
 
     private CFMetaData metadata()
     {
-        return Schema.instance.getCFMetaData(KEYSPACE, "Standard1");
+        return Schema.instance.getCFMetaData(KEYSPACE1, CF_STANDARD1);
     }
 
     private void testAddInternal(boolean reversed)

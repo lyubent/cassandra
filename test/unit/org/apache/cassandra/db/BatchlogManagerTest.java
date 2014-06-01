@@ -51,24 +51,20 @@ import static org.apache.cassandra.utils.ByteBufferUtil.bytes;
 
 public class BatchlogManagerTest
 {
-    private static final String KEYSPACE = "BatchlogManagerTest";
+    private static final String KEYSPACE1 = "BatchlogManagerTest";
+    private static final String CF_STANDARD1 = "Standard1";
+    private static final String CF_STANDARD2 = "Standard2";
+    private static final String CF_STANDARD3 = "Standard3";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard1"),
-                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard2"),
-                                           SchemaLoader.standardCFMD(KEYSPACE, "Standard3")));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD3));
     }
 
     @Before
@@ -88,10 +84,10 @@ public class BatchlogManagerTest
 
         // Generate 1000 mutations and put them all into the batchlog.
         // Half (500) ready to be replayed, half not.
-        CellNameType comparator = Keyspace.open(KEYSPACE).getColumnFamilyStore("Standard1").metadata.comparator;
+        CellNameType comparator = Keyspace.open(KEYSPACE1).getColumnFamilyStore("Standard1").metadata.comparator;
         for (int i = 0; i < 1000; i++)
         {
-            Mutation mutation = new Mutation(KEYSPACE, bytes(i));
+            Mutation mutation = new Mutation(KEYSPACE1, bytes(i));
             mutation.add("Standard1", comparator.makeCellName(bytes(i)), bytes(i), System.currentTimeMillis());
 
             long timestamp = System.currentTimeMillis();
@@ -119,7 +115,7 @@ public class BatchlogManagerTest
 
         for (int i = 0; i < 1000; i++)
         {
-            UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT * FROM \"%s\".\"Standard1\" WHERE key = intAsBlob(%d)", KEYSPACE, i));
+            UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT * FROM \"%s\".\"Standard1\" WHERE key = intAsBlob(%d)", KEYSPACE1, i));
             if (i < 500)
             {
                 assertEquals(bytes(i), result.one().getBytes("key"));
@@ -133,23 +129,23 @@ public class BatchlogManagerTest
         }
 
         // Ensure that no stray mutations got somehow applied.
-        UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT count(*) FROM \"%s\".\"Standard1\"", KEYSPACE));
+        UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT count(*) FROM \"%s\".\"Standard1\"", KEYSPACE1));
         assertEquals(500, result.one().getLong("count"));
     }
 
     @Test
     public void testTruncatedReplay() throws InterruptedException, ExecutionException
     {
-        CellNameType comparator2 = Keyspace.open(KEYSPACE).getColumnFamilyStore("Standard2").metadata.comparator;
-        CellNameType comparator3 = Keyspace.open(KEYSPACE).getColumnFamilyStore("Standard3").metadata.comparator;
+        CellNameType comparator2 = Keyspace.open(KEYSPACE1).getColumnFamilyStore("Standard2").metadata.comparator;
+        CellNameType comparator3 = Keyspace.open(KEYSPACE1).getColumnFamilyStore("Standard3").metadata.comparator;
         // Generate 2000 mutations (1000 batchlog entries) and put them all into the batchlog.
         // Each batchlog entry with a mutation for Standard2 and Standard3.
         // In the middle of the process, 'truncate' Standard2.
         for (int i = 0; i < 1000; i++)
         {
-            Mutation mutation1 = new Mutation(KEYSPACE, bytes(i));
+            Mutation mutation1 = new Mutation(KEYSPACE1, bytes(i));
             mutation1.add("Standard2", comparator2.makeCellName(bytes(i)), bytes(i), 0);
-            Mutation mutation2 = new Mutation(KEYSPACE, bytes(i));
+            Mutation mutation2 = new Mutation(KEYSPACE1, bytes(i));
             mutation2.add("Standard3", comparator3.makeCellName(bytes(i)), bytes(i), 0);
             List<Mutation> mutations = Lists.newArrayList(mutation1, mutation2);
 
@@ -157,7 +153,7 @@ public class BatchlogManagerTest
             long timestamp = System.currentTimeMillis() - DatabaseDescriptor.getWriteRpcTimeout() * 2;
 
             if (i == 500)
-                SystemKeyspace.saveTruncationRecord(Keyspace.open(KEYSPACE).getColumnFamilyStore("Standard2"),
+                SystemKeyspace.saveTruncationRecord(Keyspace.open(KEYSPACE1).getColumnFamilyStore("Standard2"),
                                                     timestamp,
                                                     ReplayPosition.NONE);
 
@@ -183,7 +179,7 @@ public class BatchlogManagerTest
         // We should see half of Standard2-targeted mutations written after the replay and all of Standard3 mutations applied.
         for (int i = 0; i < 1000; i++)
         {
-            UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT * FROM \"%s\".\"Standard2\" WHERE key = intAsBlob(%d)", KEYSPACE, i));
+            UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT * FROM \"%s\".\"Standard2\" WHERE key = intAsBlob(%d)", KEYSPACE1, i));
             if (i >= 500)
             {
                 assertEquals(bytes(i), result.one().getBytes("key"));
@@ -198,7 +194,7 @@ public class BatchlogManagerTest
 
         for (int i = 0; i < 1000; i++)
         {
-            UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT * FROM \"%s\".\"Standard3\" WHERE key = intAsBlob(%d)", KEYSPACE, i));
+            UntypedResultSet result = QueryProcessor.executeInternal(String.format("SELECT * FROM \"%s\".\"Standard3\" WHERE key = intAsBlob(%d)", KEYSPACE1, i));
             assertEquals(bytes(i), result.one().getBytes("key"));
             assertEquals(bytes(i), result.one().getBytes("column1"));
             assertEquals(bytes(i), result.one().getBytes("value"));

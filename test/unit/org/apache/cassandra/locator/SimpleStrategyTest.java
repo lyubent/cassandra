@@ -35,7 +35,6 @@ import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.PendingRangeCalculatorService;
 import org.apache.cassandra.service.StorageServiceAccessor;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -44,27 +43,20 @@ import static org.junit.Assert.*;
 
 public class SimpleStrategyTest
 {
-    public static final String KEYSPACE = "SimpleStrategyTest";
+    public static final String KEYSPACE1 = "SimpleStrategyTest";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                   simple,
-                   KSMetaData.optsWithRF(1)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1));
     }
 
     @Test
     public void tryValidKeyspace()
     {
-        assert Keyspace.open(KEYSPACE).getReplicationStrategy() != null;
+        assert Keyspace.open(KEYSPACE1).getReplicationStrategy() != null;
     }
 
     @Test

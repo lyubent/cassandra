@@ -38,7 +38,6 @@ import org.apache.cassandra.db.filter.*;
 import org.apache.cassandra.db.marshal.CompositeType;
 import org.apache.cassandra.dht.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.pager.*;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -59,25 +58,18 @@ public class QueryPagerTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE_CQL,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           CFMetaData.compile("CREATE TABLE " + CF_CQL +  " ("
-                                                            + "k text,"
-                                                            + "c text,"
-                                                            + "v text,"
-                                                            + "PRIMARY KEY (k, c))", KEYSPACE_CQL)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD));
+        SchemaLoader.createKeyspace(KEYSPACE_CQL,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    CFMetaData.compile("CREATE TABLE " + CF_CQL +  " ("
+                                                     + "k text,"
+                                                     + "c text,"
+                                                     + "v text,"
+                                                     + "PRIMARY KEY (k, c))", KEYSPACE_CQL));
         addData();
     }
 

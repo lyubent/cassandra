@@ -67,10 +67,8 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.MmappedSegmentedFile;
 import org.apache.cassandra.io.util.SegmentedFile;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.CacheService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
@@ -94,22 +92,15 @@ public class SSTableReaderTest
     @BeforeClass
     public static void defineSchema() throws Exception
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
-                   SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
-                   SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEXED, true),
-                   SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDLOWINDEXINTERVAL).minIndexInterval(8)
-                                                                       .maxIndexInterval(256)
-                                                                       .caching(CachingOptions.NONE)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
+                                    SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEXED, true),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDLOWINDEXINTERVAL).minIndexInterval(8)
+                                                                                                     .maxIndexInterval(256)
+                                                                                                     .caching(CachingOptions.NONE));
     }
 
     @Test

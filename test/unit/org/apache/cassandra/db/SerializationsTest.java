@@ -40,13 +40,11 @@ import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.util.DataOutputStreamAndChannel;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.net.CallbackInfo;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -67,17 +65,11 @@ public class SerializationsTest extends AbstractSerializationsTester
     public static void defineSchema() throws ConfigurationException, IOException, TException
     {
         String keyspace = new Statics().KS;
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(keyspace,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   standardCFMD(keyspace, "Standard1"),
-                   superCFMD(keyspace, "Super1", LongType.instance)));
-        startGossiper();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(keyspace,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    standardCFMD(keyspace, "Standard1"),
+                                    superCFMD(keyspace, "Super1", LongType.instance));
     }
 
     private void testRangeSliceCommandWrite() throws IOException

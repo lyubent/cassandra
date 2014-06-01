@@ -30,10 +30,8 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.metrics.RestorableMeter;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy.getBuckets;
@@ -44,26 +42,19 @@ import static org.apache.cassandra.db.compaction.SizeTieredCompactionStrategy.va
 
 public class SizeTieredCompactionStrategyTest
 {
-    public static final String KEYSPACE = "SizeTieredCompactionStrategyTest";
+    public static final String KEYSPACE1 = "SizeTieredCompactionStrategyTest";
     private static final String CF_STANDARD1 = "Standard1";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
         Map<String, String> leveledOptions = new HashMap<>();
         leveledOptions.put("sstable_size_in_mb", "1");
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE, CF_STANDARD1)
-                                                       .compactionStrategyOptions(leveledOptions)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1)
+                                                .compactionStrategyOptions(leveledOptions));
     }
 
     @Test
@@ -171,7 +162,7 @@ public class SizeTieredCompactionStrategyTest
     @Test
     public void testPrepBucket() throws Exception
     {
-        String ksname = KEYSPACE;
+        String ksname = KEYSPACE1;
         String cfname = CF_STANDARD1;
         Keyspace keyspace = Keyspace.open(ksname);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfname);
@@ -215,7 +206,7 @@ public class SizeTieredCompactionStrategyTest
     @Test
     public void testFilterColdSSTables() throws Exception
     {
-        String ksname = KEYSPACE;
+        String ksname = KEYSPACE1;
         String cfname = CF_STANDARD1;
         Keyspace keyspace = Keyspace.open(ksname);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(cfname);

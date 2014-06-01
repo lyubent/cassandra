@@ -32,28 +32,20 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.dht.BigIntegerToken;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.service.MigrationManager;
 
 public class ReplicationStrategyEndpointCacheTest
 {
     private TokenMetadata tmd;
     private Token searchToken;
     private AbstractReplicationStrategy strategy;
-    public static final String KEYSPACE = "ReplicationStrategyEndpointCacheTest";
+    public static final String KEYSPACE1 = "ReplicationStrategyEndpointCacheTest";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                simple,
-                KSMetaData.optsWithRF(5)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(5));
     }
 
     public void setup(Class stratClass, Map<String, String> strategyOptions) throws Exception
@@ -61,7 +53,7 @@ public class ReplicationStrategyEndpointCacheTest
         tmd = new TokenMetadata();
         searchToken = new BigIntegerToken(String.valueOf(15));
 
-        strategy = getStrategyWithNewTokenMetadata(Keyspace.open(KEYSPACE).getReplicationStrategy(), tmd);
+        strategy = getStrategyWithNewTokenMetadata(Keyspace.open(KEYSPACE1).getReplicationStrategy(), tmd);
 
         tmd.updateNormalToken(new BigIntegerToken(String.valueOf(10)), InetAddress.getByName("127.0.0.1"));
         tmd.updateNormalToken(new BigIntegerToken(String.valueOf(20)), InetAddress.getByName("127.0.0.2"));

@@ -54,9 +54,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.io.sstable.SSTableUtils;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.CounterId;
@@ -85,29 +83,22 @@ public class StreamingTransferTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
-                   CFMetaData.denseCFMetaData(KEYSPACE1, CF_COUNTER, BytesType.instance).defaultValidator(CounterColumnType.instance),
-                   CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDINT, IntegerType.instance),
-                   SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEX, true)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE2,
-                   simple,
-                   KSMetaData.optsWithRF(1)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE_CACHEKEY,
-                   simple,
-                   KSMetaData.optsWithRF(1),
-                   SchemaLoader.standardCFMD(KEYSPACE_CACHEKEY, CF_STANDARD),
-                   SchemaLoader.standardCFMD(KEYSPACE_CACHEKEY, CF_STANDARD2),
-                   SchemaLoader.standardCFMD(KEYSPACE_CACHEKEY, CF_STANDARD3)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_COUNTER, BytesType.instance).defaultValidator(CounterColumnType.instance),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDINT, IntegerType.instance),
+                                    SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEX, true));
+        SchemaLoader.createKeyspace(KEYSPACE2,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1));
+        SchemaLoader.createKeyspace(KEYSPACE_CACHEKEY,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE_CACHEKEY, CF_STANDARD),
+                                    SchemaLoader.standardCFMD(KEYSPACE_CACHEKEY, CF_STANDARD2),
+                                    SchemaLoader.standardCFMD(KEYSPACE_CACHEKEY, CF_STANDARD3));
         setup();
     }
 

@@ -18,9 +18,7 @@
 */
 package org.apache.cassandra.db.compaction;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 
@@ -41,9 +39,7 @@ import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
@@ -65,34 +61,27 @@ public class CompactionsPurgeTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE2,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD1)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE_CACHED,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE_CACHED, CF_CACHED).caching(CachingOptions.ALL)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE_CQL,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           CFMetaData.compile("CREATE TABLE " + CF_CQL + " ("
-                                                   + "k int PRIMARY KEY,"
-                                                   + "v1 text,"
-                                                   + "v2 int"
-                                                   + ")", KEYSPACE_CQL)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2));
+        SchemaLoader.createKeyspace(KEYSPACE2,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD1));
+        SchemaLoader.createKeyspace(KEYSPACE_CACHED,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE_CACHED, CF_CACHED).caching(CachingOptions.ALL));
+        SchemaLoader.createKeyspace(KEYSPACE_CQL,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    CFMetaData.compile("CREATE TABLE " + CF_CQL + " ("
+                                                     + "k int PRIMARY KEY,"
+                                                     + "v1 text,"
+                                                     + "v2 int"
+                                                     + ")", KEYSPACE_CQL));
     }
 
     @Test

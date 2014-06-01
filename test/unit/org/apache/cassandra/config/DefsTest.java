@@ -20,8 +20,6 @@ package org.apache.cassandra.config;
 
 import java.io.File;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -41,7 +39,6 @@ import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableDeletingTask;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.OldNetworkTopologyStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.MigrationManager;
@@ -55,35 +52,28 @@ public class DefsTest
     private static final String KEYSPACE1 = "DefsTest1";
     private static final String KEYSPACE3 = "DefsTest3";
     private static final String KEYSPACE6 = "DefsTest6";
-    private static final String EMPTYKEYSPACE = "DefsEmptyKeyspace";
+    private static final String EMPTYKEYSPACE = "DefsTestEmptyKeyspace";
+    private static final String CF_STANDARD1 = "Standard1";
+    private static final String CF_STANDARD2 = "Standard2";
+    private static final String CF_INDEXED = "Indexed1";
 
     @BeforeClass
-    // The aim here is to replace creating all the kss and their cfs in SchemaLoader#schemaDefinition
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, "Standard1"),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, "Standard2")));
-        // Keyspace 3
-        schema.add(KSMetaData.testMetadata(KEYSPACE3,
-                                           simple,
-                                           KSMetaData.optsWithRF(5),
-                                           SchemaLoader.standardCFMD(KEYSPACE3, "Standard1"),
-                                           SchemaLoader.indexCFMD(KEYSPACE3, "Indexed1", true)));
-        // Keyspace 6
-        schema.add(KSMetaData.testMetadata(KEYSPACE6,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.indexCFMD(KEYSPACE6, "Indexed1", true)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2));
+        SchemaLoader.createKeyspace(KEYSPACE3,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.indexCFMD(KEYSPACE3, CF_INDEXED, true));
+        SchemaLoader.createKeyspace(KEYSPACE6,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.indexCFMD(KEYSPACE6, CF_INDEXED, true));
     }
 
     @Test

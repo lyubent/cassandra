@@ -48,9 +48,7 @@ import org.apache.cassandra.db.marshal.Int32Type;
 import org.apache.cassandra.db.marshal.IntegerType;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.io.sstable.SSTableReader;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.concurrent.OpOrder;
 
@@ -58,30 +56,23 @@ import static org.apache.cassandra.Util.dk;
 
 public class RangeTombstoneTest
 {
-    private static final String KEYSPACE = "RangeTombstoneTest";
+    private static final String KEYSPACE1 = "RangeTombstoneTest";
     private static final String CFNAME = "StandardInteger1";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           CFMetaData.denseCFMetaData(KEYSPACE, CFNAME, IntegerType.instance)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CFNAME, IntegerType.instance));
     }
 
 
     @Test
     public void simpleQueryWithRangeTombstoneTest() throws Exception
     {
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CFNAME);
 
         // Inserting data
@@ -89,25 +80,25 @@ public class RangeTombstoneTest
         Mutation rm;
         ColumnFamily cf;
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         for (int i = 0; i < 40; i += 2)
             add(rm, i, 0);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 10, 22, 1);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         for (int i = 1; i < 40; i += 2)
             add(rm, i, 2);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 19, 27, 3);
         rm.apply();
@@ -141,7 +132,7 @@ public class RangeTombstoneTest
     public void rangeTombstoneFilteringTest() throws Exception
     {
         CompactionManager.instance.disableAutoCompaction();
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CFNAME);
 
         // Inserting data
@@ -149,17 +140,17 @@ public class RangeTombstoneTest
         Mutation rm;
         ColumnFamily cf;
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         for (int i = 0; i < 40; i += 2)
             add(rm, i, 0);
         rm.apply();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 5, 10, 1);
         rm.apply();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 15, 20, 2);
         rm.apply();
@@ -242,7 +233,7 @@ public class RangeTombstoneTest
     public void overlappingRangeTest() throws Exception
     {
         CompactionManager.instance.disableAutoCompaction();
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CFNAME);
 
         // Inserting data
@@ -250,25 +241,25 @@ public class RangeTombstoneTest
         Mutation rm;
         ColumnFamily cf;
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         for (int i = 0; i < 20; i++)
             add(rm, i, 0);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 5, 15, 1);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 5, 10, 1);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         cf = rm.addOrGet(CFNAME);
         delete(cf, 5, 8, 2);
         rm.apply();
@@ -298,7 +289,7 @@ public class RangeTombstoneTest
     @Test
     public void reverseQueryTest() throws Exception
     {
-        Keyspace table = Keyspace.open(KEYSPACE);
+        Keyspace table = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = table.getColumnFamilyStore(CFNAME);
 
         // Inserting data
@@ -306,12 +297,12 @@ public class RangeTombstoneTest
         Mutation rm;
         ColumnFamily cf;
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         add(rm, 2, 0);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, ByteBufferUtil.bytes(key));
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes(key));
         // Deletes everything but without being a row tombstone
         delete(rm.addOrGet(CFNAME), 0, 10, 1);
         add(rm, 1, 2);
@@ -344,7 +335,7 @@ public class RangeTombstoneTest
     @Test
     public void testLazilyCompactedRowGeneratesSameSSTablesAsPreCompactedRow() throws Exception
     {
-        Keyspace table = Keyspace.open(KEYSPACE);
+        Keyspace table = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = table.getColumnFamilyStore(CFNAME);
         ByteBuffer key = ByteBufferUtil.bytes("k4");
 
@@ -353,13 +344,13 @@ public class RangeTombstoneTest
         cfs.disableAutoCompaction();
         cfs.setCompactionStrategyClass(SizeTieredCompactionStrategy.class.getCanonicalName());
 
-        Mutation rm = new Mutation(KEYSPACE, key);
+        Mutation rm = new Mutation(KEYSPACE1, key);
         for (int i = 0; i < 10; i += 2)
             add(rm, i, 0);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, key);
+        rm = new Mutation(KEYSPACE1, key);
         ColumnFamily cf = rm.addOrGet(CFNAME);
         for (int i = 0; i < 10; i += 2)
             delete(cf, 0, 7, 0);
@@ -393,7 +384,7 @@ public class RangeTombstoneTest
     @Test
     public void testOverwritesToDeletedColumns() throws Exception
     {
-        Keyspace table = Keyspace.open(KEYSPACE);
+        Keyspace table = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = table.getColumnFamilyStore(CFNAME);
         ByteBuffer key = ByteBufferUtil.bytes("k6");
         ByteBuffer indexedColumnName = ByteBufferUtil.bytes(1);
@@ -411,18 +402,18 @@ public class RangeTombstoneTest
         TestIndex index = ((TestIndex)cfs.indexManager.getIndexForColumn(indexedColumnName));
         index.resetCounts();
 
-        Mutation rm = new Mutation(KEYSPACE, key);
+        Mutation rm = new Mutation(KEYSPACE1, key);
         add(rm, 1, 0);
         rm.apply();
 
         // add a RT which hides the column we just inserted
-        rm = new Mutation(KEYSPACE, key);
+        rm = new Mutation(KEYSPACE1, key);
         ColumnFamily cf = rm.addOrGet(CFNAME);
         delete(cf, 0, 1, 1);
         rm.apply();
 
         // now re-insert that column
-        rm = new Mutation(KEYSPACE, key);
+        rm = new Mutation(KEYSPACE1, key);
         add(rm, 1, 2);
         rm.apply();
 
@@ -436,7 +427,7 @@ public class RangeTombstoneTest
 
     private void runCompactionWithRangeTombstoneAndCheckSecondaryIndex() throws Exception
     {
-        Keyspace table = Keyspace.open(KEYSPACE);
+        Keyspace table = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = table.getColumnFamilyStore(CFNAME);
         ByteBuffer key = ByteBufferUtil.bytes("k5");
         ByteBuffer indexedColumnName = ByteBufferUtil.bytes(1);
@@ -454,13 +445,13 @@ public class RangeTombstoneTest
         TestIndex index = ((TestIndex)cfs.indexManager.getIndexForColumn(indexedColumnName));
         index.resetCounts();
 
-        Mutation rm = new Mutation(KEYSPACE, key);
+        Mutation rm = new Mutation(KEYSPACE1, key);
         for (int i = 0; i < 10; i++)
             add(rm, i, 0);
         rm.apply();
         cfs.forceBlockingFlush();
 
-        rm = new Mutation(KEYSPACE, key);
+        rm = new Mutation(KEYSPACE1, key);
         ColumnFamily cf = rm.addOrGet(CFNAME);
         for (int i = 0; i < 10; i += 2)
             delete(cf, 0, 7, 0);

@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.LinkedList;
 
+import org.apache.cassandra.SchemaLoader;
 import org.junit.BeforeClass;
 
 import org.apache.cassandra.Util;
@@ -36,25 +37,21 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class AntiEntropyServiceStandardTest extends AntiEntropyServiceTestAbstract
 {
+
+    private static final String KEYSPACE5 = "Keyspace5";
+
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata("Keyspace5",
-                simple,
-                KSMetaData.optsWithRF(2),
-                standardCFMD("Keyspace5", "Standard1")));
-        startGossiper();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE5,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(2),
+                                    standardCFMD(KEYSPACE5, "Standard1"));
     }
 
     public void init()
     {
-        keyspaceName = "Keyspace5";
+        keyspaceName = KEYSPACE5;
         cfname    = "Standard1";
     }
 

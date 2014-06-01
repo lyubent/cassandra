@@ -21,27 +21,25 @@ package org.apache.cassandra.db.marshal;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import org.apache.cassandra.config.CFMetaData;
-import org.apache.cassandra.config.KSMetaData;
-import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
-import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.serializers.MarshalException;
-import org.apache.cassandra.service.MigrationManager;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import static org.junit.Assert.fail;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.*;
 import org.apache.cassandra.db.filter.QueryFilter;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.serializers.MarshalException;
 import org.apache.cassandra.utils.*;
 
 public class DynamicCompositeTypeTest
 {
-    private static final String KEYSPACE = "DynamicCompositeTypeTest";
+    private static final String KEYSPACE1 = "DynamicCompositeTypeTest";
     private static final String CF_STANDARDDYNCOMPOSITE = "StandardDynamicComposite";
     private static Map<Byte, AbstractType<?>> aliases = new HashMap<Byte, AbstractType<?>>();
 
@@ -64,18 +62,11 @@ public class DynamicCompositeTypeTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
         AbstractType<?> dynamicComposite = DynamicCompositeType.getInstance(aliases);
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           CFMetaData.denseCFMetaData(KEYSPACE, "StandardDynamicComposite", dynamicComposite)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, "StandardDynamicComposite", dynamicComposite));
     }
 
     @Test
@@ -185,7 +176,7 @@ public class DynamicCompositeTypeTest
     @Test
     public void testFullRound() throws Exception
     {
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
         ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDDYNCOMPOSITE);
 
         ByteBuffer cname1 = createDynamicCompositeKey("test1", null, -1, false);
@@ -195,7 +186,7 @@ public class DynamicCompositeTypeTest
         ByteBuffer cname5 = createDynamicCompositeKey("test2", uuids[1], 42, false);
 
         ByteBuffer key = ByteBufferUtil.bytes("k");
-        Mutation rm = new Mutation(KEYSPACE, key);
+        Mutation rm = new Mutation(KEYSPACE1, key);
         addColumn(rm, cname5);
         addColumn(rm, cname1);
         addColumn(rm, cname4);

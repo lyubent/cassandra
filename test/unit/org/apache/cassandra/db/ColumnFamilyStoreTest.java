@@ -70,10 +70,8 @@ import org.apache.cassandra.io.sstable.SSTableSimpleWriter;
 import org.apache.cassandra.io.sstable.SSTableWriter;
 import org.apache.cassandra.io.sstable.metadata.MetadataCollector;
 import org.apache.cassandra.io.util.FileUtils;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.ActiveRepairService;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.cassandra.thrift.SliceRange;
@@ -121,36 +119,29 @@ public class ColumnFamilyStoreTest
     @BeforeClass
     public static void defineSchema() throws ConfigurationException, IOException, TException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE1,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD3),
-                                           SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD4),
-                                           SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEX1, true),
-                                           SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEX2, false),
-                                           SchemaLoader.superCFMD(KEYSPACE1, CF_SUPER1, LongType.instance),
-                                           SchemaLoader.superCFMD(KEYSPACE1, CF_SUPER6, LexicalUUIDType.instance, UTF8Type.instance),
-                                           CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDINT, IntegerType.instance)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE2,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD1),
-                                           SchemaLoader.indexCFMD(KEYSPACE2, CF_INDEX1, true),
-                                           SchemaLoader.compositeIndexCFMD(KEYSPACE2, CF_INDEX2, true),
-                                           SchemaLoader.compositeIndexCFMD(KEYSPACE2, CF_INDEX3, true).gcGraceSeconds(0)));
-        schema.add(KSMetaData.testMetadata(KEYSPACE3,
-                                           simple,
-                                           KSMetaData.optsWithRF(5),
-                                           SchemaLoader.indexCFMD(KEYSPACE3, CF_INDEX1, true)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD3),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD4),
+                                    SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEX1, true),
+                                    SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEX2, false),
+                                    SchemaLoader.superCFMD(KEYSPACE1, CF_SUPER1, LongType.instance),
+                                    SchemaLoader.superCFMD(KEYSPACE1, CF_SUPER6, LexicalUUIDType.instance, UTF8Type.instance),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDINT, IntegerType.instance));
+        SchemaLoader.createKeyspace(KEYSPACE2,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE2, CF_STANDARD1),
+                                    SchemaLoader.indexCFMD(KEYSPACE2, CF_INDEX1, true),
+                                    SchemaLoader.compositeIndexCFMD(KEYSPACE2, CF_INDEX2, true),
+                                    SchemaLoader.compositeIndexCFMD(KEYSPACE2, CF_INDEX3, true).gcGraceSeconds(0));
+        SchemaLoader.createKeyspace(KEYSPACE3,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(5),
+                                    SchemaLoader.indexCFMD(KEYSPACE3, CF_INDEX1, true));
     }
 
     @Test

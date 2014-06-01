@@ -73,7 +73,6 @@ public class MoveTest
     public static void tearDown()
     {
         StorageService.instance.setPartitionerUnsafe(oldPartitioner);
-        SchemaLoader.stopGossiper();
     }
 
     /*

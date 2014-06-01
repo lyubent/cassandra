@@ -21,8 +21,6 @@ package org.apache.cassandra.db;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collection;
-import java.util.List;
-import java.util.ArrayList;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -34,32 +32,23 @@ import org.apache.cassandra.Util;
 import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.marshal.LongType;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
-import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 public class NameSortTest
 {
-    private static final String KEYSPACE = "NameSortTest";
+    private static final String KEYSPACE1 = "NameSortTest";
     private static final String CF = "Standard1";
     private static final String CFSUPER = "Super1";
 
     @BeforeClass
     public static void defineSchema() throws ConfigurationException
     {
-        List<KSMetaData> schema = new ArrayList<>();
-        Class<? extends AbstractReplicationStrategy> simple = SimpleStrategy.class;
-
-        schema.add(KSMetaData.testMetadata(KEYSPACE,
-                                           simple,
-                                           KSMetaData.optsWithRF(1),
-                                           SchemaLoader.standardCFMD(KEYSPACE, CF),
-                                           SchemaLoader.superCFMD(KEYSPACE, CFSUPER, LongType.instance)));
-        SchemaLoader.startGossiper();
-        SchemaLoader.initSchema();
-        for (KSMetaData ksm : schema)
-            MigrationManager.announceNewKeyspace(ksm);
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF),
+                                    SchemaLoader.superCFMD(KEYSPACE1, CFSUPER, LongType.instance));
     }
 
 
@@ -86,7 +75,7 @@ public class NameSortTest
 
     private void testNameSort(int N) throws IOException
     {
-        Keyspace keyspace = Keyspace.open(KEYSPACE);
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
 
         for (int i = 0; i < N; ++i)
         {
@@ -97,7 +86,7 @@ public class NameSortTest
             for (int j = 0; j < 8; ++j)
             {
                 ByteBuffer bytes = j % 2 == 0 ? ByteBufferUtil.bytes("a") : ByteBufferUtil.bytes("b");
-                rm = new Mutation(KEYSPACE, key);
+                rm = new Mutation(KEYSPACE1, key);
                 rm.add(CF, Util.cellname("Cell-" + j), bytes, j);
                 rm.applyUnsafe();
             }
@@ -105,7 +94,7 @@ public class NameSortTest
             // super
             for (int j = 0; j < 8; ++j)
             {
-                rm = new Mutation(KEYSPACE, key);
+                rm = new Mutation(KEYSPACE1, key);
                 for (int k = 0; k < 4; ++k)
                 {
                     String value = (j + k) % 2 == 0 ? "a" : "b";
