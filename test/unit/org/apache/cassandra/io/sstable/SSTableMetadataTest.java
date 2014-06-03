@@ -23,45 +23,72 @@ package org.apache.cassandra.io.sstable;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+
+import org.junit.BeforeClass;
 import org.junit.Test;
-
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.Util;
-import org.apache.cassandra.db.*;
-import org.apache.cassandra.db.composites.*;
-import org.apache.cassandra.db.context.CounterContext;
-import org.apache.cassandra.utils.ByteBufferUtil;
-import org.apache.cassandra.utils.CounterId;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.Util;
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.*;
+import org.apache.cassandra.db.composites.*;
+import org.apache.cassandra.db.context.CounterContext;
+import org.apache.cassandra.db.marshal.*;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.CounterId;
+
 import static org.apache.cassandra.Util.cellname;
 
-public class SSTableMetadataTest extends SchemaLoader
+public class SSTableMetadataTest
 {
+    public static final String KEYSPACE1 = "SSTableMetadataTest";
+    public static final String CF_STANDARD = "Standard1";
+    public static final String CF_STANDARD2 = "Standard2";
+    public static final String CF_STANDARD3 = "Standard3";
+    public static final String CF_STANDARDCOMPOSITE2 = "StandardComposite2";
+    public static final String CF_COUNTER1 = "Counter1";
+
+    @BeforeClass
+    public static void defineSchema() throws Exception
+    {
+        AbstractType<?> compositeMaxMin = CompositeType.getInstance(Arrays.asList(new AbstractType<?>[]{BytesType.instance, IntegerType.instance}));
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD3),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDCOMPOSITE2, compositeMaxMin),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_COUNTER1, BytesType.instance).defaultValidator(CounterColumnType.instance));
+    }
+
     @Test
     public void testTrackMaxDeletionTime()
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
         long timestamp = System.currentTimeMillis();
         for(int i = 0; i < 10; i++)
         {
             DecoratedKey key = Util.dk(Integer.toString(i));
-            Mutation rm = new Mutation("Keyspace1", key.getKey());
+            Mutation rm = new Mutation(KEYSPACE1, key.getKey());
             for (int j = 0; j < 10; j++)
-                rm.add("Standard1", cellname(Integer.toString(j)),
+                rm.add(CF_STANDARD, cellname(Integer.toString(j)),
                        ByteBufferUtil.EMPTY_BYTE_BUFFER,
                        timestamp,
                        10 + j);
             rm.apply();
         }
-        Mutation rm = new Mutation("Keyspace1", Util.dk("longttl").getKey());
-        rm.add("Standard1", cellname("col"),
+        Mutation rm = new Mutation(KEYSPACE1, Util.dk("longttl").getKey());
+        rm.add(CF_STANDARD, cellname("col"),
                ByteBufferUtil.EMPTY_BYTE_BUFFER,
                timestamp,
                10000);
@@ -76,8 +103,8 @@ public class SSTableMetadataTest extends SchemaLoader
             assertEquals(ttltimestamp + 10000, firstDelTime, 10);
 
         }
-        rm = new Mutation("Keyspace1", Util.dk("longttl2").getKey());
-        rm.add("Standard1", cellname("col"),
+        rm = new Mutation(KEYSPACE1, Util.dk("longttl2").getKey());
+        rm.add(CF_STANDARD, cellname("col"),
                ByteBufferUtil.EMPTY_BYTE_BUFFER,
                timestamp,
                20000);
@@ -119,17 +146,17 @@ public class SSTableMetadataTest extends SchemaLoader
     @Test
     public void testWithDeletes() throws ExecutionException, InterruptedException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard2");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD2);
         long timestamp = System.currentTimeMillis();
         DecoratedKey key = Util.dk("deletetest");
-        Mutation rm = new Mutation("Keyspace1", key.getKey());
+        Mutation rm = new Mutation(KEYSPACE1, key.getKey());
         for (int i = 0; i<5; i++)
-            rm.add("Standard2", cellname("deletecolumn" + i),
-                       ByteBufferUtil.EMPTY_BYTE_BUFFER,
-                       timestamp,
-                       100);
-        rm.add("Standard2", cellname("todelete"),
+        rm.add(CF_STANDARD2, cellname("deletecolumn" + i),
+                   ByteBufferUtil.EMPTY_BYTE_BUFFER,
+                   timestamp,
+                   100);
+        rm.add(CF_STANDARD2, cellname("todelete"),
                    ByteBufferUtil.EMPTY_BYTE_BUFFER,
                    timestamp,
                    1000);
@@ -143,8 +170,8 @@ public class SSTableMetadataTest extends SchemaLoader
             firstMaxDelTime = sstable.getSSTableMetadata().maxLocalDeletionTime;
             assertEquals(ttltimestamp + 1000, firstMaxDelTime, 10);
         }
-        rm = new Mutation("Keyspace1", key.getKey());
-        rm.delete("Standard2", cellname("todelete"), timestamp + 1);
+        rm = new Mutation(KEYSPACE1, key.getKey());
+        rm.delete(CF_STANDARD2, cellname("todelete"), timestamp + 1);
         rm.apply();
         store.forceBlockingFlush();
         assertEquals(2,store.getSSTables().size());
@@ -169,16 +196,16 @@ public class SSTableMetadataTest extends SchemaLoader
     @Test
     public void trackMaxMinColNames() throws CharacterCodingException, ExecutionException, InterruptedException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard3");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD3);
         store.getCompactionStrategy();
         for (int j = 0; j < 8; j++)
         {
             DecoratedKey key = Util.dk("row"+j);
-            Mutation rm = new Mutation("Keyspace1", key.getKey());
+            Mutation rm = new Mutation(KEYSPACE1, key.getKey());
             for (int i = 100; i<150; i++)
             {
-                rm.add("Standard3", cellname(j + "col" + i), ByteBufferUtil.EMPTY_BYTE_BUFFER, System.currentTimeMillis());
+                rm.add(CF_STANDARD3, cellname(j + "col" + i), ByteBufferUtil.EMPTY_BYTE_BUFFER, System.currentTimeMillis());
             }
             rm.apply();
         }
@@ -190,10 +217,10 @@ public class SSTableMetadataTest extends SchemaLoader
             assertEquals(ByteBufferUtil.string(sstable.getSSTableMetadata().maxColumnNames.get(0)), "7col149");
         }
         DecoratedKey key = Util.dk("row2");
-        Mutation rm = new Mutation("Keyspace1", key.getKey());
+        Mutation rm = new Mutation(KEYSPACE1, key.getKey());
         for (int i = 101; i<299; i++)
         {
-            rm.add("Standard3", cellname(9 + "col" + i), ByteBufferUtil.EMPTY_BYTE_BUFFER, System.currentTimeMillis());
+            rm.add(CF_STANDARD3, cellname(9 + "col" + i), ByteBufferUtil.EMPTY_BYTE_BUFFER, System.currentTimeMillis());
         }
         rm.apply();
 
@@ -221,18 +248,18 @@ public class SSTableMetadataTest extends SchemaLoader
         ---------------------
         meaning max columns are b9 and 9, min is a0 and 0
          */
-        Keyspace keyspace = Keyspace.open("Keyspace1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
 
-        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("StandardComposite2");
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARDCOMPOSITE2);
 
         CellNameType type = cfs.getComparator();
 
         ByteBuffer key = ByteBufferUtil.bytes("k");
         for (int i = 0; i < 10; i++)
         {
-            Mutation rm = new Mutation("Keyspace1", key);
+            Mutation rm = new Mutation(KEYSPACE1, key);
             CellName colName = type.makeCellName(ByteBufferUtil.bytes("a"+(9-i)), ByteBufferUtil.bytes(i));
-            rm.add("StandardComposite2", colName, ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
+            rm.add(CF_STANDARDCOMPOSITE2, colName, ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
             rm.apply();
         }
         cfs.forceBlockingFlush();
@@ -240,9 +267,9 @@ public class SSTableMetadataTest extends SchemaLoader
         key = ByteBufferUtil.bytes("k2");
         for (int i = 0; i < 10; i++)
         {
-            Mutation rm = new Mutation("Keyspace1", key);
+            Mutation rm = new Mutation(KEYSPACE1, key);
             CellName colName = type.makeCellName(ByteBufferUtil.bytes("b"+(9-i)), ByteBufferUtil.bytes(i));
-            rm.add("StandardComposite2", colName, ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
+            rm.add(CF_STANDARDCOMPOSITE2, colName, ByteBufferUtil.EMPTY_BYTE_BUFFER, 0);
             rm.apply();
         }
         cfs.forceBlockingFlush();
@@ -260,7 +287,7 @@ public class SSTableMetadataTest extends SchemaLoader
     @Test
     public void testLegacyCounterShardTracking()
     {
-        ColumnFamilyStore cfs = Keyspace.open("Keyspace1").getColumnFamilyStore("Counter1");
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_COUNTER1);
 
         // A cell with all shards
         CounterContext.ContextState state = CounterContext.ContextState.allocate(1, 1, 1);

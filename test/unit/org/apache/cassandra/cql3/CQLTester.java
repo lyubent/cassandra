@@ -53,6 +53,7 @@ public abstract class CQLTester
     public static void setUpClass() throws Throwable
     {
         // This start gossiper for the sake of schema migrations. We might be able to get rid of that with some work.
+        SchemaLoader.startGossiper();
         SchemaLoader.prepareServer();
 
         schemaChange(String.format("CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '1'}", KEYSPACE));

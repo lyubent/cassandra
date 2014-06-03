@@ -1,4 +1,3 @@
-package org.apache.cassandra.io.sstable;
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -19,7 +18,7 @@ package org.apache.cassandra.io.sstable;
  * under the License.
  *
  */
-
+package org.apache.cassandra.io.sstable;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -35,15 +34,19 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 import com.google.common.collect.Sets;
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.cache.CachingOptions;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.BufferDecoratedKey;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -64,39 +67,55 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.util.FileDataInput;
 import org.apache.cassandra.io.util.MmappedSegmentedFile;
 import org.apache.cassandra.io.util.SegmentedFile;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.CacheService;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.Pair;
 
 import static org.apache.cassandra.Util.cellname;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
-public class SSTableReaderTest extends SchemaLoader
+public class SSTableReaderTest
 {
-    private static final Logger logger = LoggerFactory.getLogger(SSTableReaderTest.class);
+    public static final String KEYSPACE1 = "SSTableReaderTest";
+    public static final String CF_STANDARD = "Standard1";
+    public static final String CF_STANDARD2 = "Standard2";
+    public static final String CF_INDEXED = "Indexed1";
+    public static final String CF_STANDARDLOWINDEXINTERVAL = "StandardLowIndexInterval";
 
     static Token t(int i)
     {
         return StorageService.getPartitioner().getToken(ByteBufferUtil.bytes(String.valueOf(i)));
     }
 
+    @BeforeClass
+    public static void defineSchema() throws Exception
+    {
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD2),
+                                    SchemaLoader.indexCFMD(KEYSPACE1, CF_INDEXED, true),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARDLOWINDEXINTERVAL).minIndexInterval(8)
+                                                                                                     .maxIndexInterval(256)
+                                                                                                     .caching(CachingOptions.NONE));
+    }
+
     @Test
     public void testGetPositionsForRanges() throws ExecutionException, InterruptedException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard2");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD2);
 
         // insert data and compact to a single sstable
         CompactionManager.instance.disableAutoCompaction();
         for (int j = 0; j < 10; j++)
         {
             ByteBuffer key = ByteBufferUtil.bytes(String.valueOf(j));
-            Mutation rm = new Mutation("Keyspace1", key);
-            rm.add("Standard2", cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
+            Mutation rm = new Mutation(KEYSPACE1, key);
+            rm.add(CF_STANDARD2, cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
             rm.apply();
         }
         store.forceBlockingFlush();
@@ -128,16 +147,16 @@ public class SSTableReaderTest extends SchemaLoader
     {
         MmappedSegmentedFile.MAX_SEGMENT_SIZE = 40; // each index entry is ~11 bytes, so this will generate lots of segments
 
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
 
         // insert a bunch of data and compact to a single sstable
         CompactionManager.instance.disableAutoCompaction();
         for (int j = 0; j < 100; j += 2)
         {
             ByteBuffer key = ByteBufferUtil.bytes(String.valueOf(j));
-            Mutation rm = new Mutation("Keyspace1", key);
-            rm.add("Standard1", cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
+            Mutation rm = new Mutation(KEYSPACE1, key);
+            rm.add(CF_STANDARD, cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
             rm.apply();
         }
         store.forceBlockingFlush();
@@ -165,14 +184,14 @@ public class SSTableReaderTest extends SchemaLoader
     public void testPersistentStatistics()
     {
 
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
 
         for (int j = 0; j < 100; j += 2)
         {
             ByteBuffer key = ByteBufferUtil.bytes(String.valueOf(j));
-            Mutation rm = new Mutation("Keyspace1", key);
-            rm.add("Standard1", cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
+            Mutation rm = new Mutation(KEYSPACE1, key);
+            rm.add(CF_STANDARD, cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
             rm.apply();
         }
         store.forceBlockingFlush();
@@ -190,8 +209,8 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testGetPositionsForRangesWithKeyCache() throws ExecutionException, InterruptedException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard2");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD2);
         CacheService.instance.keyCache.setCapacity(100);
 
         // insert data and compact to a single sstable
@@ -199,8 +218,8 @@ public class SSTableReaderTest extends SchemaLoader
         for (int j = 0; j < 10; j++)
         {
             ByteBuffer key = ByteBufferUtil.bytes(String.valueOf(j));
-            Mutation rm = new Mutation("Keyspace1", key);
-            rm.add("Standard2", cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
+            Mutation rm = new Mutation(KEYSPACE1, key);
+            rm.add(CF_STANDARD2, cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
             rm.apply();
         }
         store.forceBlockingFlush();
@@ -225,11 +244,11 @@ public class SSTableReaderTest extends SchemaLoader
     public void testPersistentStatisticsWithSecondaryIndex()
     {
         // Create secondary index and flush to disk
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Indexed1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_INDEXED);
         ByteBuffer key = ByteBufferUtil.bytes(String.valueOf("k1"));
-        Mutation rm = new Mutation("Keyspace1", key);
-        rm.add("Indexed1", cellname("birthdate"), ByteBufferUtil.bytes(1L), System.currentTimeMillis());
+        Mutation rm = new Mutation(KEYSPACE1, key);
+        rm.add(CF_INDEXED, cellname("birthdate"), ByteBufferUtil.bytes(1L), System.currentTimeMillis());
         rm.apply();
         store.forceBlockingFlush();
 
@@ -240,8 +259,8 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testOpeningSSTable() throws Exception
     {
-        String ks = "Keyspace1";
-        String cf = "Standard1";
+        String ks = KEYSPACE1;
+        String cf = CF_STANDARD;
 
         // clear and create just one sstable for this test
         Keyspace keyspace = Keyspace.open(ks);
@@ -281,11 +300,11 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testLoadingSummaryUsesCorrectPartitioner() throws Exception
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Indexed1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_INDEXED);
         ByteBuffer key = ByteBufferUtil.bytes(String.valueOf("k1"));
-        Mutation rm = new Mutation("Keyspace1", key);
-        rm.add("Indexed1", cellname("birthdate"), ByteBufferUtil.bytes(1L), System.currentTimeMillis());
+        Mutation rm = new Mutation(KEYSPACE1, key);
+        rm.add(CF_INDEXED, cellname("birthdate"), ByteBufferUtil.bytes(1L), System.currentTimeMillis());
         rm.apply();
         store.forceBlockingFlush();
 
@@ -308,11 +327,11 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testGetScannerForNoIntersectingRanges()
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD);
         ByteBuffer key = ByteBufferUtil.bytes(String.valueOf("k1"));
-        Mutation rm = new Mutation("Keyspace1", key);
-        rm.add("Standard1", cellname("xyz"), ByteBufferUtil.bytes("abc"), 0);
+        Mutation rm = new Mutation(KEYSPACE1, key);
+        rm.add(CF_STANDARD, cellname("xyz"), ByteBufferUtil.bytes("abc"), 0);
         rm.apply();
         store.forceBlockingFlush();
         boolean foundScanner = false;
@@ -328,8 +347,8 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testGetPositionsForRangesFromTableOpenedForBulkLoading() throws IOException, ExecutionException, InterruptedException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        ColumnFamilyStore store = keyspace.getColumnFamilyStore("Standard2");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARD2);
 
         // insert data and compact to a single sstable. The
         // number of keys inserted is greater than index_interval
@@ -338,8 +357,8 @@ public class SSTableReaderTest extends SchemaLoader
         for (int j = 0; j < 130; j++)
         {
             ByteBuffer key = ByteBufferUtil.bytes(String.valueOf(j));
-            Mutation rm = new Mutation("Keyspace1", key);
-            rm.add("Standard2", cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
+            Mutation rm = new Mutation(KEYSPACE1, key);
+            rm.add(CF_STANDARD2, cellname("0"), ByteBufferUtil.EMPTY_BYTE_BUFFER, j);
             rm.apply();
         }
         store.forceBlockingFlush();
@@ -364,16 +383,16 @@ public class SSTableReaderTest extends SchemaLoader
     @Test
     public void testIndexSummaryReplacement() throws IOException, ExecutionException, InterruptedException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
-        final ColumnFamilyStore store = keyspace.getColumnFamilyStore("StandardLowIndexInterval"); // index interval of 8, no key caching
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
+        final ColumnFamilyStore store = keyspace.getColumnFamilyStore(CF_STANDARDLOWINDEXINTERVAL); // index interval of 8, no key caching
         CompactionManager.instance.disableAutoCompaction();
 
         final int NUM_ROWS = 512;
         for (int j = 0; j < NUM_ROWS; j++)
         {
             ByteBuffer key = ByteBufferUtil.bytes(String.format("%3d", j));
-            Mutation rm = new Mutation("Keyspace1", key);
-            rm.add("StandardLowIndexInterval", Util.cellname("0"), ByteBufferUtil.bytes(String.format("%3d", j)), j);
+            Mutation rm = new Mutation(KEYSPACE1, key);
+            rm.add(CF_STANDARDLOWINDEXINTERVAL, Util.cellname("0"), ByteBufferUtil.bytes(String.format("%3d", j)), j);
             rm.apply();
         }
         store.forceBlockingFlush();
@@ -421,7 +440,7 @@ public class SSTableReaderTest extends SchemaLoader
 
     private void assertIndexQueryWorks(ColumnFamilyStore indexedCFS)
     {
-        assert "Indexed1".equals(indexedCFS.name);
+        assert CF_INDEXED.equals(indexedCFS.name);
 
         // make sure all sstables including 2ary indexes load from disk
         for (ColumnFamilyStore cfs : indexedCFS.concatWithIndexes())

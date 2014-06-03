@@ -24,34 +24,51 @@ import static org.junit.Assert.assertNull;
 
 import java.io.IOException;
 
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.commitlog.CommitLog;
-import org.junit.Test;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
 /**
  * Test for the truncate operation.
  */
-public class RecoveryManagerTruncateTest extends SchemaLoader
+public class RecoveryManagerTruncateTest
 {
+    private static final String KEYSPACE1 = "RecoveryManagerTruncateTest";
+    private static final String CF_STANDARD1 = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD1));
+    }
+
 	@Test
 	public void testTruncate() throws IOException
 	{
-		Keyspace keyspace = Keyspace.open("Keyspace1");
-		ColumnFamilyStore cfs = keyspace.getColumnFamilyStore("Standard1");
+		Keyspace keyspace = Keyspace.open(KEYSPACE1);
+		ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(CF_STANDARD1);
 
 		Mutation rm;
 		ColumnFamily cf;
 
 		// add a single cell
-        cf = ArrayBackedSortedColumns.factory.create("Keyspace1", "Standard1");
+        cf = ArrayBackedSortedColumns.factory.create(KEYSPACE1, CF_STANDARD1);
 		cf.addColumn(column("col1", "val1", 1L));
-        rm = new Mutation("Keyspace1", ByteBufferUtil.bytes("keymulti"), cf);
+        rm = new Mutation(KEYSPACE1, ByteBufferUtil.bytes("keymulti"), cf);
 		rm.apply();
 
 		// Make sure data was written
-		assertNotNull(getFromTable(keyspace, "Standard1", "keymulti", "col1"));
+		assertNotNull(getFromTable(keyspace, CF_STANDARD1, "keymulti", "col1"));
 
 		// and now truncate it
 		cfs.truncateBlocking();
@@ -59,7 +76,7 @@ public class RecoveryManagerTruncateTest extends SchemaLoader
 		CommitLog.instance.recover();
 
 		// and validate truncation.
-		assertNull(getFromTable(keyspace, "Standard1", "keymulti", "col1"));
+		assertNull(getFromTable(keyspace, CF_STANDARD1, "keymulti", "col1"));
 	}
 
 	private Cell getFromTable(Keyspace keyspace, String cfName, String keyName, String columnName)

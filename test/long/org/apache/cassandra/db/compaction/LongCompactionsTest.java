@@ -24,7 +24,12 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.config.Schema;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.thrift.TException;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
@@ -36,9 +41,22 @@ import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 
-public class LongCompactionsTest extends SchemaLoader
+public class LongCompactionsTest
 {
     public static final String KEYSPACE1 = "Keyspace1";
+    public static final String CF_STANDARD = "Standard1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException, IOException, TException
+    {
+        Map<String, String> compactionOptions = new HashMap<String, String>();
+        compactionOptions.put("tombstone_compaction_interval", "1");
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD)
+                                                .compactionStrategyOptions(compactionOptions));
+    }
 
     /**
      * Test compaction with a very wide row.
@@ -96,16 +114,20 @@ public class LongCompactionsTest extends SchemaLoader
 
         // give garbage collection a bit of time to catch up
         Thread.sleep(1000);
-
+        System.out.println("WPW OTS RAOCHI");
+        System.out.println("WPW OTS RAOCHI");
         long start = System.nanoTime();
         final int gcBefore = (int) (System.currentTimeMillis() / 1000) - Schema.instance.getCFMetaData(KEYSPACE1, "Standard1").getGcGraceSeconds();
+        System.out.println("money is on this....!");
+        System.out.println("money is on this....!");
         new CompactionTask(store, sstables, gcBefore, false).execute(null);
+        System.out.println("raichu de-volved to a #25");
         System.out.println(String.format("%s: sstables=%d rowsper=%d colsper=%d: %d ms",
-                                         this.getClass().getName(),
-                                         sstableCount,
-                                         rowsPerSSTable,
-                                         colsPerRow,
-                                         TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)));
+                this.getClass().getName(),
+                sstableCount,
+                rowsPerSSTable,
+                colsPerRow,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)));
     }
 
     @Test

@@ -19,41 +19,60 @@ package org.apache.cassandra.thrift;
  * under the License.
  *
  */
-
-import org.apache.cassandra.db.marshal.LongType;
-import org.apache.cassandra.exceptions.*;
-import org.junit.Test;
-
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.config.*;
-import org.apache.cassandra.db.marshal.AsciiType;
-import org.apache.cassandra.locator.LocalStrategy;
-import org.apache.cassandra.locator.NetworkTopologyStrategy;
-import org.apache.cassandra.utils.ByteBufferUtil;
-
+import java.io.IOException;
 import java.util.Arrays;
 
+import org.junit.BeforeClass;
+import org.junit.Test;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertEquals;
 
-public class ThriftValidationTest extends SchemaLoader
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.*;
+import org.apache.cassandra.db.marshal.*;
+import org.apache.cassandra.exceptions.*;
+import org.apache.cassandra.locator.LocalStrategy;
+import org.apache.cassandra.locator.NetworkTopologyStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.thrift.TException;
+
+public class ThriftValidationTest
 {
+    public static final String KEYSPACE1 = "MultiSliceTest";
+    public static final String CF_STANDARD = "Standard1";
+    public static final String CF_COUNTER = "Counter1";
+    public static final String CF_UUID = "UUIDKeys";
+    public static final String CF_STANDARDLONG3 = "StandardLong3";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException, IOException, TException
+    {
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_COUNTER, BytesType.instance).defaultValidator(CounterColumnType.instance),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_UUID).keyValidator(UUIDType.instance),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_STANDARDLONG3, IntegerType.instance));
+    }
+
     @Test(expected=org.apache.cassandra.exceptions.InvalidRequestException.class)
     public void testValidateCommutativeWithStandard() throws org.apache.cassandra.exceptions.InvalidRequestException
     {
-        ThriftValidation.validateColumnFamily("Keyspace1", "Standard1", true);
+        ThriftValidation.validateColumnFamily(KEYSPACE1, CF_STANDARD, true);
     }
 
     @Test
     public void testValidateCommutativeWithCounter() throws org.apache.cassandra.exceptions.InvalidRequestException
     {
-        ThriftValidation.validateColumnFamily("Keyspace1", "Counter1", true);
+        ThriftValidation.validateColumnFamily(KEYSPACE1, CF_COUNTER, true);
     }
 
     @Test
     public void testColumnNameEqualToKeyAlias() throws org.apache.cassandra.exceptions.InvalidRequestException
     {
-        CFMetaData metaData = Schema.instance.getCFMetaData("Keyspace1", "Standard1");
+        CFMetaData metaData = Schema.instance.getCFMetaData(KEYSPACE1, CF_STANDARD);
         CFMetaData newMetadata = metaData.copy();
 
         boolean gotException = false;
@@ -98,7 +117,7 @@ public class ThriftValidationTest extends SchemaLoader
     @Test
     public void testColumnNameEqualToDefaultKeyAlias() throws org.apache.cassandra.exceptions.InvalidRequestException
     {
-        CFMetaData metaData = Schema.instance.getCFMetaData("Keyspace1", "UUIDKeys");
+        CFMetaData metaData = Schema.instance.getCFMetaData(KEYSPACE1, CF_UUID);
         ColumnDefinition definition = metaData.getColumnDefinition(ByteBufferUtil.bytes(CFMetaData.DEFAULT_KEY_ALIAS));
         assertNotNull(definition);
         assertEquals(ColumnDefinition.Kind.PARTITION_KEY, definition.kind);
@@ -116,7 +135,7 @@ public class ThriftValidationTest extends SchemaLoader
     @Test
     public void testColumnNameEqualToDefaultColumnAlias() throws org.apache.cassandra.exceptions.InvalidRequestException
     {
-        CFMetaData metaData = Schema.instance.getCFMetaData("Keyspace1", "StandardLong3");
+        CFMetaData metaData = Schema.instance.getCFMetaData(KEYSPACE1, CF_STANDARDLONG3);
         ColumnDefinition definition = metaData.getColumnDefinition(ByteBufferUtil.bytes(CFMetaData.DEFAULT_COLUMN_ALIAS + 1));
         assertNotNull(definition);
 
@@ -130,10 +149,8 @@ public class ThriftValidationTest extends SchemaLoader
     @Test
     public void testValidateKsDef()
     {
-        KsDef ks_def = new KsDef()
-                            .setName("keyspaceValid")
-                            .setStrategy_class(LocalStrategy.class.getSimpleName());
-
+        KsDef ks_def = new KsDef().setName("keyspaceValid")
+                                  .setStrategy_class(LocalStrategy.class.getSimpleName());
 
         boolean gotException = false;
 

@@ -27,6 +27,7 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import org.junit.Assert;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
@@ -41,7 +42,7 @@ import org.apache.cassandra.utils.*;
 import static org.apache.cassandra.Util.cellname;
 import static org.apache.cassandra.db.context.CounterContext.ContextState;
 
-public class CounterCellTest extends SchemaLoader
+public class CounterCellTest
 {
     private static final CounterContext cc = new CounterContext();
 
@@ -58,6 +59,12 @@ public class CounterCellTest extends SchemaLoader
         countLength   = 8; // size of long
 
         stepLength    = idLength + clockLength + countLength;
+    }
+
+    @BeforeClass
+    public static void defineSchema()
+    {
+        SchemaLoader.startGossiper();
     }
 
     @Test

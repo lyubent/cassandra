@@ -18,20 +18,40 @@
  */
 package org.apache.cassandra.db;
 
-import static org.junit.Assert.assertEquals;
-import static org.apache.cassandra.Util.addMutation;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collection;
 
-import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.Util;
-import org.apache.cassandra.utils.ByteBufferUtil;
-
+import org.junit.BeforeClass;
 import org.junit.Test;
 
-public class NameSortTest extends SchemaLoader
+import static org.junit.Assert.assertEquals;
+import static org.apache.cassandra.Util.addMutation;
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.Util;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.marshal.LongType;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.utils.ByteBufferUtil;
+
+public class NameSortTest
 {
+    private static final String KEYSPACE1 = "NameSortTest";
+    private static final String CF = "Standard1";
+    private static final String CFSUPER = "Super1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF),
+                                    SchemaLoader.superCFMD(KEYSPACE1, CFSUPER, LongType.instance));
+    }
+
+
     @Test
     public void testNameSort1() throws IOException
     {
@@ -55,7 +75,7 @@ public class NameSortTest extends SchemaLoader
 
     private void testNameSort(int N) throws IOException
     {
-        Keyspace keyspace = Keyspace.open("Keyspace1");
+        Keyspace keyspace = Keyspace.open(KEYSPACE1);
 
         for (int i = 0; i < N; ++i)
         {
@@ -66,19 +86,19 @@ public class NameSortTest extends SchemaLoader
             for (int j = 0; j < 8; ++j)
             {
                 ByteBuffer bytes = j % 2 == 0 ? ByteBufferUtil.bytes("a") : ByteBufferUtil.bytes("b");
-                rm = new Mutation("Keyspace1", key);
-                rm.add("Standard1", Util.cellname("Cell-" + j), bytes, j);
+                rm = new Mutation(KEYSPACE1, key);
+                rm.add(CF, Util.cellname("Cell-" + j), bytes, j);
                 rm.applyUnsafe();
             }
 
             // super
             for (int j = 0; j < 8; ++j)
             {
-                rm = new Mutation("Keyspace1", key);
+                rm = new Mutation(KEYSPACE1, key);
                 for (int k = 0; k < 4; ++k)
                 {
                     String value = (j + k) % 2 == 0 ? "a" : "b";
-                    addMutation(rm, "Super1", "SuperColumn-" + j, k, value, k);
+                    addMutation(rm, CFSUPER, "SuperColumn-" + j, k, value, k);
                 }
                 rm.applyUnsafe();
             }
@@ -86,8 +106,8 @@ public class NameSortTest extends SchemaLoader
 
         validateNameSort(keyspace, N);
 
-        keyspace.getColumnFamilyStore("Standard1").forceBlockingFlush();
-        keyspace.getColumnFamilyStore("Super1").forceBlockingFlush();
+        keyspace.getColumnFamilyStore(CF).forceBlockingFlush();
+        keyspace.getColumnFamilyStore(CFSUPER).forceBlockingFlush();
         validateNameSort(keyspace, N);
     }
 
@@ -98,7 +118,7 @@ public class NameSortTest extends SchemaLoader
             DecoratedKey key = Util.dk(Integer.toString(i));
             ColumnFamily cf;
 
-            cf = Util.getColumnFamily(keyspace, key, "Standard1");
+            cf = Util.getColumnFamily(keyspace, key, CF);
             Collection<Cell> cells = cf.getSortedColumns();
             for (Cell cell : cells)
             {

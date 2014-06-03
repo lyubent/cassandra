@@ -39,8 +39,14 @@ import org.apache.cassandra.dht.IncludingExcludingBounds;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class StorageProxyTest extends SchemaLoader
+public class StorageProxyTest
 {
+    @BeforeClass
+    public static void startGossip()
+    {
+        SchemaLoader.startGossiper();
+    }
+
     private static Range<RowPosition> range(RowPosition left, RowPosition right)
     {
         return new Range<RowPosition>(left, right);

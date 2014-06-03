@@ -47,7 +47,7 @@ import org.apache.cassandra.utils.FBUtilities;
 
 import static org.junit.Assert.assertEquals;
 
-public abstract class AntiEntropyServiceTestAbstract extends SchemaLoader
+public abstract class AntiEntropyServiceTestAbstract
 {
     // keyspace and column family to test against
     public ActiveRepairService aes;

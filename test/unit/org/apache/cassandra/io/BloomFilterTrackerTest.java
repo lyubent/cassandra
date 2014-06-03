@@ -20,16 +20,21 @@ package org.apache.cassandra.io;
  *
  */
 
-
+import org.junit.BeforeClass;
 import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.io.sstable.BloomFilterTracker;
 
-import static org.junit.Assert.assertEquals;
-
-public class BloomFilterTrackerTest extends SchemaLoader
+public class BloomFilterTrackerTest
 {
+    @BeforeClass
+    public static void startGossip()
+    {
+        SchemaLoader.startGossiper();
+    }
+
     @Test
     public void testAddingFalsePositives()
     {

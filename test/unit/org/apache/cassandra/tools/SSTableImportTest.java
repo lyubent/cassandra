@@ -26,7 +26,19 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 
+import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.db.marshal.CounterColumnType;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.service.MigrationManager;
+import org.apache.thrift.TException;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
@@ -38,19 +50,33 @@ import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.utils.ByteBufferUtil;
 
-public class SSTableImportTest extends SchemaLoader
+public class SSTableImportTest
 {
+    public static final String KEYSPACE1 = "SSTableImportTest";
+    public static final String CF_STANDARD = "Standard1";
+    public static final String CF_COUNTER = "Counter1";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException, IOException, TException
+    {
+        SchemaLoader.createKeyspace(KEYSPACE1,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(1),
+                                    SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD),
+                                    CFMetaData.denseCFMetaData(KEYSPACE1, CF_COUNTER, BytesType.instance).defaultValidator(CounterColumnType.instance));
+    }
+
     @Test
     public void testImportSimpleCf() throws IOException, URISyntaxException
     {
         // Import JSON to temp SSTable file
         String jsonUrl = resourcePath("SimpleCF.json");
-        File tempSS = tempSSTableFile("Keyspace1", "Standard1");
-        new SSTableImport(true).importJson(jsonUrl, "Keyspace1", "Standard1", tempSS.getPath());
+        File tempSS = tempSSTableFile(KEYSPACE1, CF_STANDARD);
+        new SSTableImport(true).importJson(jsonUrl, KEYSPACE1, CF_STANDARD, tempSS.getPath());
 
         // Verify results
         SSTableReader reader = SSTableReader.open(Descriptor.fromFilename(tempSS.getPath()));
-        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), "Standard1", System.currentTimeMillis());
+        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), CF_STANDARD, System.currentTimeMillis());
         OnDiskAtomIterator iter = qf.getSSTableColumnIterator(reader);
         ColumnFamily cf = cloneForAdditions(iter);
         while (iter.hasNext()) cf.addAtom(iter.next());
@@ -78,12 +104,12 @@ public class SSTableImportTest extends SchemaLoader
     public void testImportUnsortedMode() throws IOException, URISyntaxException
     {
         String jsonUrl = resourcePath("UnsortedCF.json");
-        File tempSS = tempSSTableFile("Keyspace1", "Standard1");
+        File tempSS = tempSSTableFile(KEYSPACE1, CF_STANDARD);
 
-        new SSTableImport().importJson(jsonUrl, "Keyspace1", "Standard1", tempSS.getPath());
+        new SSTableImport().importJson(jsonUrl, KEYSPACE1, CF_STANDARD, tempSS.getPath());
 
         SSTableReader reader = SSTableReader.open(Descriptor.fromFilename(tempSS.getPath()));
-        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), "Standard1", System.currentTimeMillis());
+        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), CF_STANDARD, System.currentTimeMillis());
         OnDiskAtomIterator iter = qf.getSSTableColumnIterator(reader);
         ColumnFamily cf = cloneForAdditions(iter);
         while (iter.hasNext())
@@ -101,12 +127,12 @@ public class SSTableImportTest extends SchemaLoader
     {
         // Import JSON to temp SSTable file
         String jsonUrl = resourcePath("SimpleCFWithDeletionInfo.json");
-        File tempSS = tempSSTableFile("Keyspace1", "Standard1");
-        new SSTableImport(true).importJson(jsonUrl, "Keyspace1", "Standard1", tempSS.getPath());
+        File tempSS = tempSSTableFile(KEYSPACE1, CF_STANDARD);
+        new SSTableImport(true).importJson(jsonUrl, KEYSPACE1, CF_STANDARD, tempSS.getPath());
 
         // Verify results
         SSTableReader reader = SSTableReader.open(Descriptor.fromFilename(tempSS.getPath()));
-        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), "Standard1", System.currentTimeMillis());
+        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), CF_STANDARD, System.currentTimeMillis());
         OnDiskAtomIterator iter = qf.getSSTableColumnIterator(reader);
         ColumnFamily cf = cloneForAdditions(iter);
         assertEquals(cf.deletionInfo(), new DeletionInfo(0, 0));
@@ -125,12 +151,12 @@ public class SSTableImportTest extends SchemaLoader
     {
         // Import JSON to temp SSTable file
         String jsonUrl = resourcePath("CounterCF.json");
-        File tempSS = tempSSTableFile("Keyspace1", "Counter1");
-        new SSTableImport(true).importJson(jsonUrl, "Keyspace1", "Counter1", tempSS.getPath());
+        File tempSS = tempSSTableFile(KEYSPACE1, CF_COUNTER);
+        new SSTableImport(true).importJson(jsonUrl, KEYSPACE1, CF_COUNTER, tempSS.getPath());
 
         // Verify results
         SSTableReader reader = SSTableReader.open(Descriptor.fromFilename(tempSS.getPath()));
-        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), "Counter1", System.currentTimeMillis());
+        QueryFilter qf = QueryFilter.getIdentityFilter(Util.dk("rowA"), CF_COUNTER, System.currentTimeMillis());
         OnDiskAtomIterator iter = qf.getSSTableColumnIterator(reader);
         ColumnFamily cf = cloneForAdditions(iter);
         while (iter.hasNext()) cf.addAtom(iter.next());

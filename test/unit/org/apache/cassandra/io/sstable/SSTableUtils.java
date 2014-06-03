@@ -158,6 +158,12 @@ public class SSTableUtils
             return this;
         }
 
+        public SSTableReader write(String ksname, Set<String> keys) throws IOException
+        {
+            this.ksname = ksname;
+            return write(keys);
+        }
+
         public SSTableReader write(Set<String> keys) throws IOException
         {
             Map<String, ColumnFamily> map = new HashMap<String, ColumnFamily>();

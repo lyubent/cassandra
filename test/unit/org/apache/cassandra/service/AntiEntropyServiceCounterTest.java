@@ -19,20 +19,36 @@ package org.apache.cassandra.service;
  * under the License.
  *
  */
-
 import java.util.List;
 import java.util.LinkedList;
 
+import org.junit.BeforeClass;
+
+import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.composites.CellNames;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.db.ConsistencyLevel;
 
 public class AntiEntropyServiceCounterTest extends AntiEntropyServiceTestAbstract
 {
+    private static final String KEYSPACE5 = "Keyspace5";
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        SchemaLoader.createKeyspace(KEYSPACE5,
+                                    SimpleStrategy.class,
+                                    KSMetaData.optsWithRF(2),
+                                    SchemaLoader.standardCFMD(KEYSPACE5, "Counter1"));
+    }
+
     public void init()
     {
-        keyspaceName = "Keyspace5";
+        keyspaceName = KEYSPACE5;
         cfname    = "Counter1";
     }
 

@@ -22,7 +22,11 @@ import java.net.InetAddress;
 import java.security.MessageDigest;
 import java.util.UUID;
 
+import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.junit.After;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.cassandra.SchemaLoader;
@@ -50,11 +54,20 @@ import org.apache.cassandra.utils.concurrent.SimpleCondition;
 
 import static org.junit.Assert.*;
 
-public class ValidatorTest extends SchemaLoader
+public class ValidatorTest
 {
-    private final String keyspace = "Keyspace1";
-    private final String columnFamily = "Standard1";
+    private static final String KEYSPACE1 = "ValidatorTest";
+    private static final String CF_STANDARD = "Standard1";
     private final IPartitioner partitioner = StorageService.getPartitioner();
+
+    @BeforeClass
+    public static void defineSchema() throws ConfigurationException
+    {
+        SchemaLoader.createKeyspace(KEYSPACE1,
+        SimpleStrategy.class,
+        KSMetaData.optsWithRF(1),
+        SchemaLoader.standardCFMD(KEYSPACE1, CF_STANDARD));
+    }
 
     @After
     public void tearDown()
@@ -66,7 +79,7 @@ public class ValidatorTest extends SchemaLoader
     public void testValidatorComplete() throws Throwable
     {
         Range<Token> range = new Range<>(partitioner.getMinimumToken(), partitioner.getRandomToken());
-        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), keyspace, columnFamily, range);
+        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), KEYSPACE1, CF_STANDARD, range);
 
         final SimpleCondition lock = new SimpleCondition();
         SinkManager.add(new IMessageSink()
@@ -100,7 +113,7 @@ public class ValidatorTest extends SchemaLoader
 
         InetAddress remote = InetAddress.getByName("127.0.0.2");
 
-        ColumnFamilyStore cfs = Keyspace.open(keyspace).getColumnFamilyStore(columnFamily);
+        ColumnFamilyStore cfs = Keyspace.open(KEYSPACE1).getColumnFamilyStore(CF_STANDARD);
 
         Validator validator = new Validator(desc, remote, 0);
         validator.prepare(cfs);
@@ -147,7 +160,7 @@ public class ValidatorTest extends SchemaLoader
     public void testValidatorFailed() throws Throwable
     {
         Range<Token> range = new Range<>(partitioner.getMinimumToken(), partitioner.getRandomToken());
-        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), keyspace, columnFamily, range);
+        final RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), UUID.randomUUID(), KEYSPACE1, CF_STANDARD, range);
 
         final SimpleCondition lock = new SimpleCondition();
         SinkManager.add(new IMessageSink()

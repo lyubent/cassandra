@@ -62,14 +62,13 @@ public class RemoveTest
     public static void setupClass() throws ConfigurationException
     {
         oldPartitioner = StorageService.instance.setPartitionerUnsafe(partitioner);
-        SchemaLoader.loadSchema();
+        SchemaLoader.initSchema();
     }
 
     @AfterClass
     public static void tearDownClass()
     {
         StorageService.instance.setPartitionerUnsafe(oldPartitioner);
-        SchemaLoader.stopGossiper();
     }
 
     @Before

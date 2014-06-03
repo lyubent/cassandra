@@ -73,8 +73,9 @@ public class RelocateTest
     @BeforeClass
     public static void setUp() throws Exception
     {
+        SchemaLoader.startGossiper();
         oldPartitioner = StorageService.instance.setPartitionerUnsafe(partitioner);
-        SchemaLoader.loadSchema();
+        SchemaLoader.initSchema();
         vvFactory = new VersionedValue.VersionedValueFactory(partitioner);
     }
 
@@ -82,7 +83,6 @@ public class RelocateTest
     public static void tearDown() throws Exception
     {
         StorageService.instance.setPartitionerUnsafe(oldPartitioner);
-        SchemaLoader.stopGossiper();
     }
 
     /** Setup a virtual node ring */
