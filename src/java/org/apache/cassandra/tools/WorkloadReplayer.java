@@ -74,7 +74,11 @@ public class WorkloadReplayer
             throw new InvalidRequestException(String.format("QueryLog %s doesn't exist or you don't have READ permissions.", logPath));
 
         File [] logPaths = log.listFiles();
-        replay(replayWait, timeout, host, port, read(logPaths));
+
+        // replay one log at a time
+        for (File path : logPaths)
+            if (path.getName().contains("QueryLog.log"))
+                replay(replayWait, timeout, host, port, read(path));
     }
 
     /**
@@ -83,34 +87,25 @@ public class WorkloadReplayer
      * @return Iterable<QuerylogSegment> A list of objects containing the timestamp and query string
      * @throws IOException
      */
-    // public static Iterable<Pair<Long, byte[]>> read(File[] logPaths) throws IOException
-    public static Iterable<QuerylogSegment> read(File[] logPaths) throws IOException
+    public static Iterable<QuerylogSegment> read(File logPath) throws IOException
     {
-        // TODO don't read all the files, read one file at a time OR
-        // TODO better yet, read segments of a file then fetch next segment once full read.
         List<QuerylogSegment> queries = new ArrayList<>();
-        for (File logPath : logPaths)
+        try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(logPath))))
         {
-            // skip files that are not query logs.
-            if(!logPath.getName().contains("QueryLog"))
-                continue;
-
-            try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(logPath))))
+            while (dis.available() > 0)
             {
-                while (dis.available() > 0)
-                {
-                    long timestamp = dis.readLong();
-                    int queryLength = dis.readInt();
-                    byte[] queryString = new byte[queryLength];
-                    dis.read(queryString, 0, queryString.length);
-                    queries.add(new QuerylogSegment(timestamp, queryString));
-                }
-            }
-            catch (IOException iox)
-            {
-                throw new RuntimeException(String.format("Error opening query log %s", logPath.getAbsolutePath()), iox);
+                long timestamp = dis.readLong();
+                int queryLength = dis.readInt();
+                byte[] queryString = new byte[queryLength];
+                dis.read(queryString, 0, queryString.length);
+                queries.add(new QuerylogSegment(timestamp, queryString));
             }
         }
+        catch (IOException iox)
+        {
+            throw new RuntimeException(String.format("Error opening query log %s", logPath.getAbsolutePath()), iox);
+        }
+
         return queries;
     }
 

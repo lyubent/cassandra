@@ -18,7 +18,6 @@
 package org.apache.cassandra.cql3.recording;
 
 import java.io.*;
-import java.nio.ByteBuffer;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,7 +38,6 @@ public class QueryRecorder
     private final ExecutorService executor = new ThreadPoolExecutor(0, 1, Long.MAX_VALUE, TimeUnit.SECONDS, new LinkedBlockingDeque<Runnable>());
     private final ConcurrentLinkedQueue<QueryQueue> recycledQueue = new ConcurrentLinkedQueue<>();
     private AtomicReference<QueryQueue> queryQueue = new AtomicReference<>();
-    private ByteBuffer logSegment;
 
     public QueryRecorder(int logLimit, int frequency, String queryLogDirectory)
     {
@@ -51,52 +49,45 @@ public class QueryRecorder
     public void allocate(String queryString)
     {
         if (queryQueue.get() == null)
-            // todo possibly throw a RTE if CAS fails.
             queryQueue.compareAndSet(null, new QueryQueue(logLimit));
 
         OpOrder.Group opGroup = opOrder.start();
         try
         {
-
             byte [] queryBytes = queryString.getBytes();
             int size = calcSegmentSize(queryBytes);
-            byte [] logSegment = buildSegment(size, queryBytes);
 
             while (true)
             {
-                QueryQueue q = queryQueue.get();
+                final QueryQueue q = queryQueue.get();
                 int position = q.allocate(size);
 
                 // check for room in queue first
                 if (position >= 0)
                 {
-                    append(size, position, logSegment, q);
+                    append(queryBytes, q);
                     break;
                 }
-
-                // if queue is full then CAS the queue, upon success flush the log in it's own thread
-                final byte[] queueToFlush = q.getQueue();
-                final int pos = q.getPosition();
-
                 // recycle QueryQueues to avoid re-allocating.
                 QueryQueue newQ = recycledQueue.poll();
                 if (newQ == null)
                     newQ = new QueryQueue(logLimit);
+
+                final int pos = q.getLogPosition().getAndSet(logLimit);
                 if (queryQueue.compareAndSet(q, newQ))
                 {
-                    q.getLogPosition().compareAndSet(pos, logLimit);
                     executor.submit(new Runnable()
                     {
                         public void run()
                         {
-                            runFlush(pos, queueToFlush);
+                            runFlush(pos, q);
                         }
                     });
                 }
-
-                // reset position to allow QueryQueue to be recycled.
-                if (q.getLogPosition().compareAndSet(logLimit, 0))
-                    recycledQueue.add(q);
+                else
+                {
+                    recycleQueue(pos, q);
+                }
             }
         }
         finally
@@ -105,29 +96,19 @@ public class QueryRecorder
         }
     }
 
-    private byte[] buildSegment(int size, byte[] queryBytes)
-    {
-        // todo possible optimization, place n number of buffers (with a limit
-        // todo to prevent OOM) on a map with the key being buffer size.
-        if (logSegment == null || logSegment.limit() < size)
-            logSegment = ByteBuffer.allocate(size);
-        else
-            logSegment.clear();
-
-        return logSegment.putLong(FBUtilities.timestampMicros())
-                         .putInt(queryBytes.length)
-                         .put(queryBytes)
-                         .array();
-    }
-
     /**
      * Appends nth query to the query log queue.
      *
      * @param logSegment Query to be recorded to the query log
      */
-    private void append(int size, int position, byte [] logSegment, QueryQueue queue)
+    private void append(byte [] logSegment, QueryQueue queue)
     {
-        System.arraycopy(logSegment, 0, queue.getQueue(), position, size);
+        long timestamp = FBUtilities.timestampMicros();
+        System.out.println("ts: " + timestamp + "  ls.lenght: " + logSegment.length);
+
+        queue.getQueue().putLong(timestamp)
+                        .putInt(logSegment.length)
+                        .put(logSegment);
     }
 
     /**
@@ -150,10 +131,10 @@ public class QueryRecorder
     public void forceFlush()
     {
         QueryQueue q = queryQueue.get();
-        runFlush(q.getPosition(), q.getQueue());
+        runFlush(q.getPosition(), q);
     }
 
-    private void runFlush(final int finalPos, final byte[] queueToFlush)
+    private void runFlush(final int pos, QueryQueue q)
     {
         OpOrder.Barrier barrier = opOrder.newBarrier();
         barrier.issue();
@@ -162,11 +143,21 @@ public class QueryRecorder
         File logFile = new File(QUERYLOG_DIR, FBUtilities.timestampMicros() + QUERYLOG_NAME + QUERYLOG_EXT);
         try (FileOutputStream fos = new FileOutputStream(logFile))
         {
-            fos.write(queueToFlush, 0, finalPos);
+            fos.write(q.getQueue().array(), 0, pos);
         }
         catch (IOException iox)
         {
             throw new RuntimeException(String.format("Failed to flush query log %s", logFile.getAbsolutePath()), iox);
+        }
+        recycleQueue(pos, q);
+    }
+
+    private void recycleQueue(final int pos, final QueryQueue q)
+    {
+        if (q.getLogPosition().compareAndSet(pos, 0))
+        {
+            q.getQueue().clear();
+            recycledQueue.add(q);
         }
     }
 }

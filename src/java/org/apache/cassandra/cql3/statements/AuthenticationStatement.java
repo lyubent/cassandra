@@ -17,11 +17,14 @@
  */
 package org.apache.cassandra.cql3.statements;
 
+import org.apache.cassandra.auth.Auth;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 
 public abstract class AuthenticationStatement extends ParsedStatement implements CQLStatement
@@ -49,6 +52,14 @@ public abstract class AuthenticationStatement extends ParsedStatement implements
     {
         // executeInternal is for local query only, thus altering users doesn't make sense and is not supported
         throw new UnsupportedOperationException();
+    }
+
+    public boolean isSystemOrTrace(ClientState state) throws UnauthorizedException
+    {
+        state.ensureNotAnonymous();
+        // always false since we modify the system_auth KS
+        String ks = Auth.AUTH_KS;
+        return ks.equals(Keyspace.SYSTEM_KS) || ks.equals(Tracing.TRACE_KS);
     }
 }
 

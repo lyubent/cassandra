@@ -399,7 +399,7 @@ public class QueryProcessor implements QueryHandler
         // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
         // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
         // a non system table, e.g. customKeyspace.system.Idx1
-        if (frequency != null && !isSystemOrTraceKS(statement))
+        if (frequency != null && !isSystemOrTraceKS(statement, client))
         {
             // when at the nth query, append query to the log
             if (querylogCounter.getAndIncrement() % frequency == 0)
@@ -410,14 +410,15 @@ public class QueryProcessor implements QueryHandler
         }
     }
 
-    private static boolean isSystemOrTraceKS(CQLStatement statement)
+    private static boolean isSystemOrTraceKS(CQLStatement statement, ClientState state)
     {
-        // BatchStatement is special-cased as never being a System/Trace KS
-        // as it can contain both both system and non-system statements.
-        if (statement instanceof BatchStatement)
-             return false;
-
-        String keyspace = ((AccessibleKeyspace)statement).keyspace();
-        return (keyspace.equals(Keyspace.SYSTEM_KS) || keyspace.equals(Tracing.TRACE_KS));
+        try
+        {
+            return statement.isSystemOrTrace(state);
+        }
+        catch (UnauthorizedException uex)
+        {
+            throw new RuntimeException("Auth queries cannot be logged when accessing Cassandra anonymously.", uex);
+        }
     }
 }

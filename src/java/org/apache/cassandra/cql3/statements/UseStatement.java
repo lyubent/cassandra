@@ -17,16 +17,17 @@
  */
 package org.apache.cassandra.cql3.statements;
 
-import org.apache.cassandra.cql3.AccessibleKeyspace;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.InvalidRequestException;
 import org.apache.cassandra.exceptions.UnauthorizedException;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
 
-public class UseStatement extends ParsedStatement implements CQLStatement, AccessibleKeyspace
+public class UseStatement extends ParsedStatement implements CQLStatement
 {
     private final String keyspace;
 
@@ -50,6 +51,12 @@ public class UseStatement extends ParsedStatement implements CQLStatement, Acces
         state.validateLogin();
     }
 
+    public boolean isSystemOrTrace(ClientState state)
+    {
+        String ks = keyspace;
+        return ks.equals(Keyspace.SYSTEM_KS) || ks.equals(Tracing.TRACE_KS);
+    }
+
     public void validate(ClientState state) throws InvalidRequestException
     {
     }
@@ -64,10 +71,5 @@ public class UseStatement extends ParsedStatement implements CQLStatement, Acces
     {
         // Internal queries are exclusively on the system keyspace and 'use' is thus useless
         throw new UnsupportedOperationException();
-    }
-
-    public String keyspace()
-    {
-        return keyspace;
     }
 }

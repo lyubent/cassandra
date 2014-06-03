@@ -17,17 +17,18 @@
  */
 package org.apache.cassandra.cql3.recording;
 
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class QueryQueue
 {
-    private final byte[] queue;
+    private final ByteBuffer queue;
     private final AtomicInteger logPosition;
 
     public QueryQueue(int logLimit)
     {
-        queue = new byte[logLimit];
+        queue = ByteBuffer.allocate(logLimit);
         logPosition = new AtomicInteger(0);
     }
 
@@ -41,15 +42,16 @@ public class QueryQueue
         return logPosition;
     }
 
-    public byte[] getQueue()
+    public ByteBuffer getQueue()
     {
         return queue;
     }
 
     public int allocate(int size)
     {
+        System.out.println("ALLOCATING " + size + " => " +(size + logPosition.get()) + "/" + queue.limit());
         int position = logPosition.get();
-        int length = queue.length;
+        int length = queue.limit();
         if (position + size < length && logPosition.compareAndSet(position, position + size))
             return position;
         return -1;
@@ -58,7 +60,7 @@ public class QueryQueue
     @Override
     public String toString() {
         return "QueryQueue{" +
-                "queue=" + Arrays.toString(queue) +
+                "queue=" + Arrays.toString(queue.array()) +
                 ", logPosition=" + logPosition.get() +
                 '}';
     }

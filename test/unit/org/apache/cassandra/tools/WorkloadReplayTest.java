@@ -29,7 +29,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.apache.cassandra.SchemaLoader;
-import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -44,6 +43,7 @@ public class WorkloadReplayTest extends SchemaLoader
 {
     private static final File LOGLOCATION = Files.createTempDir();
     private static ThriftServer thriftServer;
+    private static final String countQuery = "SELECT count(*) FROM \"Keyspace1\".\"StandardReplay\"";
 
     @Before
     public void setUp() throws Exception
@@ -54,16 +54,16 @@ public class WorkloadReplayTest extends SchemaLoader
             thriftServer = new ThriftServer(InetAddress.getLocalHost(), 9170, 0);
             thriftServer.start();
         }
-
-        // create replay cf
-        QueryProcessor.process("CREATE COLUMNFAMILY \"Keyspace1\".\"StandardReplay\" (id timeuuid PRIMARY KEY)", ConsistencyLevel.ONE);
     }
 
     @Test
-    public void testReplay() throws Exception
+    public void testReplay1() throws Exception
     {
         // enable query recording
         StorageService.instance.enableQueryRecording(1, 1, LOGLOCATION.toString());
+
+        // create replay cf
+        QueryProcessor.process("CREATE TABLE IF NOT EXISTS \"Keyspace1\".\"StandardReplay\" (id timeuuid PRIMARY KEY)", ConsistencyLevel.ONE);
 
         // insert 100 columns
         for (int i = 0; i<100; i++)
@@ -74,40 +74,35 @@ public class WorkloadReplayTest extends SchemaLoader
         }
 
         // verify insert
-        String countQuery = "SELECT count(*) FROM \"Keyspace1\".\"StandardReplay\"";
         UntypedResultSet insertResult = QueryProcessor.processInternal(countQuery);
         assertEquals(100, insertResult.one().getLong("count"));
 
         // stop recording and clear the cf
         StorageService.instance.disableQueryRecording();
-
-        // stop recording and clear the cf
         ColumnFamilyStore cfs = Keyspace.open("Keyspace1").getColumnFamilyStore("StandardReplay");
         cfs.truncateBlocking();
-
+        // verify truncation
         UntypedResultSet truncateResult = QueryProcessor.processInternal(countQuery);
         assertEquals(0, truncateResult.one().getLong("count"));
 
         // read the query log
-        File [] logLocation = LOGLOCATION.listFiles();
-        Iterable<QuerylogSegment> queries = WorkloadReplayer.read(logLocation);
-
         String host = InetAddress.getLocalHost().getHostAddress();
         int port = 9170;
 
-        // replay queries as fast as possible.
-        WorkloadReplayer.replay(false, 1000000, host, port, queries);
+        // replay without timeout
+        for (File logLocation : LOGLOCATION.listFiles())
+            WorkloadReplayer.replay(false, 1000000, host, port, WorkloadReplayer.read(logLocation));
         UntypedResultSet replayResult = QueryProcessor.processInternal(countQuery);
         assertEquals(100, replayResult.one().getLong("count"));
-
         // replay with timeout of 1s and with delay simulation.
-        WorkloadReplayer.replay(true, 1000000, host, port, queries);
+        for (File logLocation : LOGLOCATION.listFiles())
+            WorkloadReplayer.replay(true, 1000000, host, port, WorkloadReplayer.read(logLocation));
         UntypedResultSet replayResultWithDelay = QueryProcessor.processInternal(countQuery);
         assertEquals(200, replayResultWithDelay.one().getLong("count"));
     }
 
     @After
-    public void afterTest() throws RequestExecutionException
+    public void tearDown() throws RequestExecutionException
     {
         // remove the test log
         for (File log : LOGLOCATION.listFiles())

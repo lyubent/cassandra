@@ -47,6 +47,7 @@ import org.apache.cassandra.service.pager.*;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.thrift.ThriftValidation;
 import org.apache.cassandra.serializers.MarshalException;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.slf4j.Logger;
@@ -57,7 +58,7 @@ import org.slf4j.LoggerFactory;
  * column family, expression, result count, and ordering clause.
  *
  */
-public class SelectStatement implements CQLStatement, MeasurableForPreparedCache, AccessibleKeyspace
+public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
 {
     private static final Logger logger = LoggerFactory.getLogger(SelectStatement.class);
 
@@ -175,6 +176,12 @@ public class SelectStatement implements CQLStatement, MeasurableForPreparedCache
     public void checkAccess(ClientState state) throws InvalidRequestException, UnauthorizedException
     {
         state.hasColumnFamilyAccess(keyspace(), columnFamily(), Permission.SELECT);
+    }
+
+    public boolean isSystemOrTrace(ClientState state)
+    {
+        String ks = keyspace();
+        return ks.equals(Keyspace.SYSTEM_KS) || ks.equals(Tracing.TRACE_KS);
     }
 
     public void validate(ClientState state) throws InvalidRequestException

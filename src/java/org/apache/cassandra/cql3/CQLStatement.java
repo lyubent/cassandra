@@ -37,6 +37,13 @@ public interface CQLStatement
     public void checkAccess(ClientState state) throws UnauthorizedException, InvalidRequestException;
 
     /**
+     * Checks if the statement's keyspace is the internal System or Trace keyspace.
+     *
+     * @return boolean representing whether the KS is a System or Trace keyspace.
+     */
+    public boolean isSystemOrTrace(ClientState state) throws UnauthorizedException;
+
+    /**
      * Perform additional validation required by the statment.
      * To be overriden by subclasses if needed.
      *

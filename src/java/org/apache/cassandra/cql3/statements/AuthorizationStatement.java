@@ -18,12 +18,15 @@
 package org.apache.cassandra.cql3.statements;
 
 
+import org.apache.cassandra.auth.Auth;
 import org.apache.cassandra.auth.DataResource;
 import org.apache.cassandra.cql3.CQLStatement;
 import org.apache.cassandra.cql3.QueryOptions;
+import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.*;
 import org.apache.cassandra.service.ClientState;
 import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.transport.messages.ResultMessage;
 
 public abstract class AuthorizationStatement extends ParsedStatement implements CQLStatement
@@ -58,5 +61,13 @@ public abstract class AuthorizationStatement extends ParsedStatement implements 
         if (resource.isColumnFamilyLevel() && resource.getKeyspace() == null)
             return DataResource.columnFamily(state.getKeyspace(), resource.getColumnFamily());
         return resource;
+    }
+
+    public boolean isSystemOrTrace(ClientState state) throws UnauthorizedException
+    {
+        state.ensureNotAnonymous();
+        // always true since we modify the system_auth KS
+        String ks = Auth.AUTH_KS;
+        return ks.equals(Keyspace.SYSTEM_KS) || ks.equals(Tracing.TRACE_KS);
     }
 }
