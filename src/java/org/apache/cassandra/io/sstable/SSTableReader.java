@@ -50,6 +50,8 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Ordering;
 import com.google.common.primitives.Longs;
 import com.google.common.util.concurrent.RateLimiter;
+import com.yammer.metrics.core.Meter;
+import org.apache.cassandra.db.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,14 +66,6 @@ import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.Config;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.config.Schema;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.DataRange;
-import org.apache.cassandra.db.DataTracker;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.RowIndexEntry;
-import org.apache.cassandra.db.RowPosition;
-import org.apache.cassandra.db.SystemKeyspace;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.commitlog.ReplayPosition;
 import org.apache.cassandra.db.compaction.ICompactionScanner;
@@ -198,6 +192,7 @@ public class SSTableReader extends SSTable
 
     @VisibleForTesting
     public RestorableMeter readMeter;
+    public Meter dataDirectoryReadMeter;
     private ScheduledFuture readMeterSyncFuture;
 
     /**
@@ -350,6 +345,7 @@ public class SSTableReader extends SSTable
         sstable.ifile = ibuilder.complete(sstable.descriptor.filenameFor(Component.PRIMARY_INDEX));
         sstable.dfile = dbuilder.complete(sstable.descriptor.filenameFor(Component.DATA));
         sstable.bf = FilterFactory.AlwaysPresent;
+        sstable.incrementReadCount();
 
         return sstable;
     }
@@ -504,6 +500,7 @@ public class SSTableReader extends SSTable
         {
             readMeter = null;
             readMeterSyncFuture = null;
+            dataDirectoryReadMeter = null;
             return;
         }
 
@@ -520,6 +517,7 @@ public class SSTableReader extends SSTable
                 }
             }
         }, 1, 5, TimeUnit.MINUTES);
+        dataDirectoryReadMeter = Directories.dataDirectoryReadMeterForPath(desc.directory);
     }
 
     private SSTableReader(Descriptor desc,
@@ -753,6 +751,7 @@ public class SSTableReader extends SSTable
         if (recreateBloomFilter || !summaryLoaded)
             buildSummary(recreateBloomFilter, ibuilder, dbuilder, summaryLoaded, Downsampling.BASE_SAMPLING_LEVEL);
 
+        Directories.dataDirectoryReadMeterForPath(descriptor.directory).mark();
         ifile = ibuilder.complete(descriptor.filenameFor(Component.PRIMARY_INDEX));
         dfile = dbuilder.complete(descriptor.filenameFor(Component.DATA));
         if (saveSummaryIfCreated && (recreateBloomFilter || !summaryLoaded)) // save summary information to disk
@@ -957,6 +956,7 @@ public class SSTableReader extends SSTable
                 readMeterSyncFuture.cancel(false);
             SSTableReader replacement = new SSTableReader(descriptor, components, metadata, partitioner, ifile, dfile, indexSummary.readOnlyClone(), bf, maxDataAge, sstableMetadata, isOpenEarly);
             replacement.readMeter = this.readMeter;
+            replacement.dataDirectoryReadMeter = this.dataDirectoryReadMeter;
             replacement.first = this.last.compareTo(newStart) > 0 ? newStart : this.last;
             replacement.last = this.last;
             setReplacedBy(replacement);
@@ -1020,6 +1020,7 @@ public class SSTableReader extends SSTable
 
             SSTableReader replacement = new SSTableReader(descriptor, components, metadata, partitioner, ifile, dfile, newSummary, bf, maxDataAge, sstableMetadata, isOpenEarly);
             replacement.readMeter = this.readMeter;
+            replacement.dataDirectoryReadMeter = this.dataDirectoryReadMeter;
             replacement.first = this.first;
             replacement.last = this.last;
             setReplacedBy(replacement);
@@ -1379,6 +1380,8 @@ public class SSTableReader extends SSTable
      */
     public RowIndexEntry getPosition(RowPosition key, Operator op, boolean updateCacheAndStats)
     {
+        // TODO simplify this methods due to its complexity - makes it very difficult to implossible for HotSpot to analyze (subject for interpreted code)
+
         // first, check bloom filter
         if (op == Operator.EQ)
         {
@@ -1479,10 +1482,16 @@ public class SSTableReader extends SSTable
                             {
                                 // expensive sanity check!  see CASSANDRA-4687
                                 FileDataInput fdi = dfile.getSegment(indexEntry.position);
-                                DecoratedKey keyInDisk = partitioner.decorateKey(ByteBufferUtil.readWithShortLength(fdi));
-                                if (!keyInDisk.equals(key))
-                                    throw new AssertionError(String.format("%s != %s in %s", keyInDisk, key, fdi.getPath()));
-                                fdi.close();
+                                try
+                                {
+                                    DecoratedKey keyInDisk = partitioner.decorateKey(ByteBufferUtil.readWithShortLength(fdi));
+                                    if (!keyInDisk.equals(key))
+                                        throw new AssertionError(String.format("%s != %s in %s", keyInDisk, key, fdi.getPath()));
+                                }
+                                finally
+                                {
+                                    fdi.close();
+                                }
                             }
 
                             // store exact match for the key
@@ -1986,6 +1995,8 @@ public class SSTableReader extends SSTable
     {
         if (readMeter != null)
             readMeter.mark();
+        if (dataDirectoryReadMeter != null)
+            dataDirectoryReadMeter.mark();
     }
 
     protected class EmptyCompactionScanner implements ICompactionScanner

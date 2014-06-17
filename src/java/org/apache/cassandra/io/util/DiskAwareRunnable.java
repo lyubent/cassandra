@@ -41,16 +41,14 @@ public abstract class DiskAwareRunnable extends WrappedRunnable
         if (directory == null)
             throw new RuntimeException("Insufficient disk space to write " + writeSize + " bytes");
 
-        directory.currentTasks.incrementAndGet();
-        directory.estimatedWorkingSize.addAndGet(writeSize);
+        directory.writeTaskStarts(writeSize);
         try
         {
             runWith(getDirectories().getLocationForDisk(directory));
         }
         finally
         {
-            directory.estimatedWorkingSize.addAndGet(-1 * writeSize);
-            directory.currentTasks.decrementAndGet();
+            directory.writeTaskEnds(writeSize);
         }
     }
 

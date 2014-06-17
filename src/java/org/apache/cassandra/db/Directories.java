@@ -42,6 +42,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.primitives.Longs;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import com.yammer.metrics.core.Meter;
+import org.apache.cassandra.metrics.DataDirectoryMetrics;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,6 +98,55 @@ public class Directories
             dataDirectories[i] = new DataDirectory(new File(locations[i]));
     }
 
+    public static final double minFreeRatio = 0.05d;
+    public static final Comparator<? super DataDirectory> valuedComparator = new Comparator<DataDirectory>()
+    {
+        @Override
+        public int compare(DataDirectory a, DataDirectory b)
+        {
+            long totalA = a.location.getTotalSpace();
+            long totalB = b.location.getTotalSpace();
+
+            long availA = a.getEstimatedAvailableSpace();
+            long availB = b.getEstimatedAvailableSpace();
+
+            // use one minute rates
+
+            double valueA = writeValueForDirectory(totalA, availA, a.metrics.writeTasks.oneMinuteRate(), a.metrics.readTasks.oneMinuteRate());
+            double valueB = writeValueForDirectory(totalB, availB, b.metrics.writeTasks.oneMinuteRate(), b.metrics.readTasks.oneMinuteRate());
+
+            if (valueA > valueB) return -1;
+            if (valueA < valueB) return 1;
+
+            // just in case the one minute rates are the same use the 5 min rates
+
+            valueA = writeValueForDirectory(totalA, availA, a.metrics.writeTasks.fiveMinuteRate(), a.metrics.readTasks.fiveMinuteRate());
+            valueB = writeValueForDirectory(totalB, availB, b.metrics.writeTasks.fiveMinuteRate(), b.metrics.readTasks.fiveMinuteRate());
+
+            if (valueA > valueB) return -1;
+            if (valueA < valueB) return 1;
+
+            // last resort...
+            return System.identityHashCode(a) - System.identityHashCode(b);
+        }
+    };
+
+    static double writeValueForDirectory(long total, long avail, double writeRate, double readRate)
+    {
+        double freeRatio = avail;
+        freeRatio /= total;
+
+        // use full write rate + half of read rate (just a guess since not all reads go to disk)
+        double weightedRate = writeRate + readRate / 2;
+
+        if (weightedRate < 0.00001d)
+            // prevent division by 0
+            weightedRate = 0.00001d;
+
+        double value = freeRatio / weightedRate;
+        return value;
+    }
+
 
     /**
      * Checks whether Cassandra has RWX permissions to the specified directory.  Logs an error with
@@ -129,6 +180,19 @@ public class Directories
         }
 
         return true;
+    }
+
+    public static Meter dataDirectoryReadMeterForPath(File directory)
+    {
+        String directoryPath = directory.getAbsolutePath();
+        for (DataDirectory dataDirectory : dataDirectories)
+        {
+            if (directoryPath.startsWith(dataDirectory.location.getAbsolutePath()))
+            {
+                return dataDirectory.metrics.readTasks;
+            }
+        }
+        return null;
     }
 
     public enum FileAction
@@ -292,11 +356,11 @@ public class Directories
     /**
      * @return a non-blacklisted directory with the most free space and least current tasks.
      *
-     * @throws IOError if all directories are blacklisted.
+     * @throws java.io.IOError if all directories are blacklisted.
      */
     public DataDirectory getWriteableLocation()
     {
-        List<DataDirectory> candidates = new ArrayList<>();
+        List<DataDirectory> candidates = new ArrayList<>(dataDirectories.length);
 
         // pick directories with enough space and so that resulting sstable dirs aren't blacklisted for writes.
         for (DataDirectory dataDir : dataDirectories)
@@ -309,6 +373,9 @@ public class Directories
         if (candidates.isEmpty())
             throw new IOError(new IOException("All configured data directories have been blacklisted as unwritable for erroring out"));
 
+        Collections.sort(candidates, valuedComparator);
+
+        /*
         // sort directories by free space, in _descending_ order.
         Collections.sort(candidates);
 
@@ -320,6 +387,7 @@ public class Directories
                 return a.currentTasks.get() - b.currentTasks.get();
             }
         });
+        */
 
         return candidates.get(0);
     }
@@ -374,9 +442,26 @@ public class Directories
         public final AtomicInteger currentTasks = new AtomicInteger();
         public final AtomicLong estimatedWorkingSize = new AtomicLong();
 
+        public final DataDirectoryMetrics metrics;
+
         public DataDirectory(File location)
         {
             this.location = location;
+            this.metrics = new DataDirectoryMetrics(this);
+        }
+
+        public void writeTaskStarts(long writeSize)
+        {
+            currentTasks.incrementAndGet();
+            estimatedWorkingSize.addAndGet(writeSize);
+            metrics.writeTasks.mark();
+            metrics.writeSize.mark(writeSize);
+        }
+
+        public void writeTaskEnds(long writeSize)
+        {
+            estimatedWorkingSize.addAndGet(-1 * writeSize);
+            currentTasks.decrementAndGet();
         }
 
         /**
@@ -385,7 +470,6 @@ public class Directories
          */
         public long getEstimatedAvailableSpace()
         {
-            // Load factor of 0.9 we do not want to use the entire disk that is too risky.
             return location.getUsableSpace() - estimatedWorkingSize.get();
         }
 
@@ -393,6 +477,26 @@ public class Directories
         {
             // we want to sort by free space in descending order
             return -1 * Longs.compare(getEstimatedAvailableSpace(), o.getEstimatedAvailableSpace());
+        }
+
+        public double writeValueOneMinute()
+        {
+            return writeValueForDirectory(location.getTotalSpace(), getEstimatedAvailableSpace(), metrics.writeTasks.oneMinuteRate(), metrics.readTasks.oneMinuteRate());
+        }
+
+        public double writeValueFiveMinutes()
+        {
+            return writeValueForDirectory(location.getTotalSpace(), getEstimatedAvailableSpace(), metrics.writeTasks.fiveMinuteRate(), metrics.readTasks.fiveMinuteRate());
+        }
+
+        public double writeValueFifteenMinutes()
+        {
+            return writeValueForDirectory(location.getTotalSpace(), getEstimatedAvailableSpace(), metrics.writeTasks.fifteenMinuteRate(), metrics.readTasks.fifteenMinuteRate());
+        }
+
+        public double writeValueMean()
+        {
+            return writeValueForDirectory(location.getTotalSpace(), getEstimatedAvailableSpace(), metrics.writeTasks.meanRate(), metrics.readTasks.meanRate());
         }
     }
 
