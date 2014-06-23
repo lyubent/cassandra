@@ -19,8 +19,12 @@ package org.apache.cassandra.config;
 
 import java.beans.IntrospectionException;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.HashSet;
 import java.util.Map;
@@ -48,29 +52,90 @@ public class YamlConfigurationLoader implements ConfigurationLoader
 
     /**
      * Inspect the classpath to find storage configuration file
+     *
+     * @throws ConfigurationException if all attempts to load the config file have failed.
      */
     private URL getStorageConfigURL() throws ConfigurationException
     {
-        String configUrl = System.getProperty("cassandra.config");
-        if (configUrl == null)
-            configUrl = DEFAULT_CONFIGURATION;
+        final  String originalConfigUrl = System.getProperty("cassandra.config");
+        String configURL;
+        if (originalConfigUrl == null)
+            configURL = DEFAULT_CONFIGURATION;
+        else
+            configURL = originalConfigUrl;
 
+        configURL = configURL.replace("\\", "/");
         URL url;
         try
         {
-            url = new URL(configUrl);
-            url.openStream().close(); // catches well-formed but bogus URLs
+            URI configURI = new URI(configURL);
+            url = getUrlByURI(configURI);
+        }
+        catch (URISyntaxException | MalformedURLException ue)
+        {
+            logger.warn("Config file <{}> is not valid. Exception <{}>. A new try to load it by file will be called", configURL, ue.getMessage());
+            url = getUrlByFile(configURL);
         }
         catch (Exception e)
         {
-            ClassLoader loader = DatabaseDescriptor.class.getClassLoader();
-            url = loader.getResource(configUrl);
-            if (url == null)
-                throw new ConfigurationException("Cannot locate " + configUrl);
+            url = getUrlByResource(configURL);
         }
 
         return url;
     }
+
+    /**
+     * getUrlByFile.
+     *
+     * @param configUrl
+     * @return
+     * @throws ConfigurationException if loading by URL or by resource did not succeed,
+     */
+    private URL getUrlByFile(final String configUrl) throws ConfigurationException
+    {
+        URL url;
+        final URI configURI = new File(configUrl).toURI();
+        try
+        {
+            url = getUrlByURI(configURI);
+        }
+        catch (Exception e)
+        {
+            logger.warn("Caught exception: {}. A new try to load it by file will be resource will be called", e.getMessage());
+            url = getUrlByResource(configUrl);
+        }
+        return url;
+    }
+
+    /**
+     +     *
+     +     * @param configUrl
+     +     * @return
+     +     * @throws ConfigurationException if loading by resource did not succeed.
+     +     */
+    private URL getUrlByResource(String configUrl) throws ConfigurationException
+    {
+        ClassLoader loader = DatabaseDescriptor.class.getClassLoader();
+        URL url = loader.getResource(configUrl);
+        if (url == null)
+            throw new ConfigurationException("Cannot locate " + configUrl);
+        return url;
+    }
+
+    /**
+    * getUrlByURI.
+    *
+    * @param configURI
+    * @return
+    * @throws IOException if a well formed but URL is caught.
+    */
+    private URL getUrlByURI(final URI configURI) throws IOException
+    {
+        URL url = configURI.toURL();
+        url.openStream().close(); // catches well-formed but bogus URLs
+        return url;
+    }
+
 
     public Config loadConfig() throws ConfigurationException
     {
@@ -111,16 +176,23 @@ public class YamlConfigurationLoader implements ConfigurationLoader
 
     private void logConfig(byte[] configBytes)
     {
-        Map<Object, Object> configMap = new TreeMap<>((Map<?, ?>) new Yaml().load(new ByteArrayInputStream(configBytes)));
-        // these keys contain passwords, don't log them
-        for (String sensitiveKey : new String[] { "client_encryption_options", "server_encryption_options" })
+        final ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(configBytes);
+        final Object object = new Yaml().load(byteArrayInputStream);
+        if (!(object instanceof Map<?, ?>))
+            logger.warn("Expected java.util.Map but got {} ", object != null ? object.getClass().getName() : "null");
+        else
         {
-            if (configMap.containsKey(sensitiveKey))
+            Map<Object, Object> configMap = new TreeMap<>((Map<?, ?>) object);
+            // these keys contain passwords, don't log them
+            for (String sensitiveKey : new String[] { "client_encryption_options", "server_encryption_options" })
             {
-                configMap.put(sensitiveKey, "<REDACTED>");
+                if (configMap.containsKey(sensitiveKey))
+                {
+                    configMap.put(sensitiveKey, "<REDACTED>");
+                }
             }
-        }
         logger.info("Node configuration:[{}]", Joiner.on("; ").join(configMap.entrySet()));
+        }
     }
     
     private static class MissingPropertiesChecker extends PropertyUtils 
