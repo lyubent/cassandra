@@ -1,5 +1,7 @@
 package org.apache.cassandra.config;
 
+import com.google.common.io.Files;
+import org.apache.cassandra.utils.FBUtilities;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
@@ -11,19 +13,22 @@ import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
 import org.hamcrest.Matcher;
 
+import java.io.File;
+import java.util.Properties;
+
 import static org.junit.Assert.assertThat;
 
 public class YamlConfigurationLoaderTest
 {
-    private static final Logger LOGGER = LoggerFactory.getLogger(YamlConfigurationLoaderTest.class);
-
     ConfigurationLoader configurationLoader;
     Matcher isNotNull;
     Matcher isNull;
+    String testConfig;
 
     @Before
     public void setUp() throws Exception
     {
+        testConfig = System.getProperty("storage-config");
         this.configurationLoader = new YamlConfigurationLoader();
 
         isNotNull = new BaseMatcher()
@@ -174,5 +179,27 @@ public class YamlConfigurationLoaderTest
         {
             assertThat("ConfigurationException caught, path not found", config, isNotNull);
         }
+    }
+
+    @Test
+    public void testValidLoadConfig() throws Exception
+    {
+        String prefix = FBUtilities.isUnix() ? "file://" : "file:///";
+        String tempDir = prefix + testConfig + File.separator + "cassandra.yaml";
+        System.setProperty("cassandra.config", tempDir);
+        this.configurationLoader.loadConfig();
+
+        // no exception thus test passes.
+    }
+
+    @Test(expected=ConfigurationException.class)
+    public void testDoubleSeparatorDir() throws Exception
+    {
+        String dir = Files.createTempDir().getAbsolutePath();
+        dir.replaceAll(File.separator, File.separator + File.separator);
+        System.setProperty("cassandra.config", dir);
+        this.configurationLoader.loadConfig();
+
+        // expecting ConfigurationException.
     }
 }
