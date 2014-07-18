@@ -20,6 +20,8 @@ package org.apache.cassandra.tools;
 
 import java.io.File;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
 
 import com.google.common.io.Files;
 import org.junit.After;
@@ -29,6 +31,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.cql3.CQLStatement;
+import org.apache.cassandra.cql3.QueryOptions;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -37,7 +41,9 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.service.QueryState;
 import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.thrift.ThriftServer;
+import org.apache.cassandra.utils.UUIDGen;
 
 public class WorkloadReplayTest extends SchemaLoader
 {
@@ -54,22 +60,28 @@ public class WorkloadReplayTest extends SchemaLoader
             thriftServer = new ThriftServer(InetAddress.getLocalHost(), 9170, 0);
             thriftServer.start();
         }
+
+        prepareSchema();
     }
 
-    @Test
-    public void testReplay1() throws Exception
+    public void prepareSchema() throws Exception
     {
         // enable query recording
         StorageService.instance.enableQueryRecording(1, 1, LOGLOCATION.toString());
 
         // create replay cf
         QueryProcessor.process("CREATE TABLE IF NOT EXISTS \"Keyspace1\".\"StandardReplay\" (id timeuuid PRIMARY KEY)", ConsistencyLevel.ONE);
+    }
+
+    @Test
+    public void testReplayArbitraryString() throws Exception
+    {
+        Keyspace.open("Keyspace1").getColumnFamilyStore("StandardReplay").truncateBlocking();
 
         // insert 100 columns
         for (int i = 0; i<100; i++)
         {
             String queryString = "INSERT INTO \"Keyspace1\".\"StandardReplay\" (id) VALUES (now())";
-            QueryProcessor.instance.prepare(queryString, QueryState.forInternalCalls());
             QueryProcessor.instance.process(queryString, ConsistencyLevel.ONE);
         }
 
@@ -89,26 +101,80 @@ public class WorkloadReplayTest extends SchemaLoader
         String host = InetAddress.getLocalHost().getHostAddress();
         int port = 9170;
 
+        // remove the test log
+        File[] logs = LOGLOCATION.listFiles();
+
         // replay without timeout
-        for (File logLocation : LOGLOCATION.listFiles())
+        for (File logLocation : logs)
             WorkloadReplayer.replay(false, 1000000, host, port, WorkloadReplayer.read(logLocation));
         UntypedResultSet replayResult = QueryProcessor.processInternal(countQuery);
         assertEquals(100, replayResult.one().getLong("count"));
         // replay with timeout of 1s and with delay simulation.
-        for (File logLocation : LOGLOCATION.listFiles())
+        for (File logLocation : logs)
             WorkloadReplayer.replay(true, 1000000, host, port, WorkloadReplayer.read(logLocation));
         UntypedResultSet replayResultWithDelay = QueryProcessor.processInternal(countQuery);
         assertEquals(200, replayResultWithDelay.one().getLong("count"));
+
+        // remove the test log
+        for (File log : LOGLOCATION.listFiles())
+            if (log.toString().contains("QueryLog"))
+                assertTrue(log.delete());
+    }
+
+    @Test
+    public void testReplayPreparedStatements() throws Exception
+    {
+        Keyspace.open("Keyspace1").getColumnFamilyStore("StandardReplay").truncateBlocking();
+
+        // insert 100 columns
+        for (int i = 0; i<50; i++)
+        {
+            String queryString = "INSERT INTO \"Keyspace1\".\"StandardReplay\" (id) VALUES (?)";
+
+            ResultMessage.Prepared p = QueryProcessor.instance.prepare(queryString, QueryState.forInternalCalls());
+            CQLStatement cql = QueryProcessor.getStatement(queryString, QueryState.forInternalCalls().getClientState()).statement;
+
+            // generate timeuuid (equilvilant to using now() cql3 function) and add it to query options.
+            ArrayList<ByteBuffer> vars = new ArrayList<>();
+            vars.add(ByteBuffer.wrap(UUIDGen.getTimeUUIDBytes()));
+            QueryOptions qp = new QueryOptions(ConsistencyLevel.ONE, vars);
+
+            QueryProcessor.instance.processPrepared(p.statementId, cql, QueryState.forInternalCalls(), qp);
+        }
+
+        // verify insert
+        UntypedResultSet insertResult = QueryProcessor.processInternal(countQuery);
+        assertEquals(50, insertResult.one().getLong("count"));
+
+        // stop recording and clear the cf
+        StorageService.instance.disableQueryRecording();
+        ColumnFamilyStore cfs = Keyspace.open("Keyspace1").getColumnFamilyStore("StandardReplay");
+        cfs.truncateBlocking();
+        // verify truncation
+        UntypedResultSet truncateResult = QueryProcessor.processInternal(countQuery);
+        assertEquals(0, truncateResult.one().getLong("count"));
+
+        // read the query log
+        String host = InetAddress.getLocalHost().getHostAddress();
+        int port = 9170;
+
+        // remove the test log
+        File[] logs = LOGLOCATION.listFiles();
+
+        // // replay without timeout
+        for (File logLocation : logs)
+             WorkloadReplayer.replay(false, 1000000, host, port, WorkloadReplayer.read(logLocation));
+        UntypedResultSet replayResult = QueryProcessor.processInternal(countQuery);
+        assertEquals(50, replayResult.one().getLong("count"));
+
+        for (File log : logs)
+            if (log.toString().contains("QueryLog"))
+                assertTrue(log.delete());
     }
 
     @After
     public void tearDown() throws RequestExecutionException
     {
-        // remove the test log
-        for (File log : LOGLOCATION.listFiles())
-            if (log.toString().contains("QueryLog"))
-                assertTrue(log.delete());
-
         QueryProcessor.process("DROP COLUMNFAMILY \"Keyspace1\".\"StandardReplay\"", ConsistencyLevel.ONE);
     }
 }

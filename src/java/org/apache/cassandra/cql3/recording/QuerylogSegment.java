@@ -22,6 +22,14 @@ public class QuerylogSegment
     long timestamp;
     String queryString;
 
+    // todo need to store both query strings (type 0 statements) and vars
+    //      of prepared statements (type 2 statements)
+    enum SegmentType
+    {
+        QUERY_STRING,
+        PREPARED_STATEMENT_VARS
+    }
+
     public QuerylogSegment(long timestamp, byte[] queryString)
     {
         this.timestamp = timestamp;

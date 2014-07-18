@@ -49,7 +49,6 @@ public class QueryQueue
 
     public int allocate(int size)
     {
-        System.out.println("ALLOCATING " + size + " => " +(size + logPosition.get()) + "/" + queue.limit());
         int position = logPosition.get();
         int length = queue.limit();
         if (position + size < length && logPosition.compareAndSet(position, position + size))

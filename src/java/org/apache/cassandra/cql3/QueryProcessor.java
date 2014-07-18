@@ -21,7 +21,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.commons.lang3.StringUtils;
 import com.google.common.primitives.Ints;
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
@@ -168,7 +167,7 @@ public class QueryProcessor implements QueryHandler
         if (prepared.getBoundTerms() != options.getValues().size())
             throw new InvalidRequestException("Invalid amount of bind variables");
 
-        maybeLogQuery(queryString, queryState.getClientState(), prepared);
+        maybeLogQuery(0, null, queryString, queryState.getClientState(), prepared, null);
         return processStatement(prepared, queryState, options);
     }
 
@@ -253,12 +252,13 @@ public class QueryProcessor implements QueryHandler
             throw new InvalidRequestException(String.format("Too many markers(?). %d markers exceed the allowed maximum of %d", boundTerms, FBUtilities.MAX_UNSIGNED_SHORT));
         assert boundTerms == prepared.boundNames.size();
 
-        return storePreparedStatement(queryString, clientState.getRawKeyspace(), prepared, forThrift);
+        return storePreparedStatement(queryString, prepared, forThrift, clientState);
     }
 
-    private static ResultMessage.Prepared storePreparedStatement(String queryString, String keyspace, ParsedStatement.Prepared prepared, boolean forThrift)
+    private static ResultMessage.Prepared storePreparedStatement(String queryString, ParsedStatement.Prepared prepared, boolean forThrift, ClientState clientState)
     throws InvalidRequestException
     {
+        String keyspace = clientState.getRawKeyspace();
         // Concatenate the current keyspace so we don't mix prepared statements between keyspace (#5352).
         // (if the keyspace is null, queryString has to have a fully-qualified keyspace so it's fine.
         String toHash = keyspace == null ? queryString : keyspace + queryString;
@@ -287,16 +287,15 @@ public class QueryProcessor implements QueryHandler
                                        prepared.statement.getBoundTerms()));
 
             // todo save the id and queryString of the preparared statement
+            maybeLogQuery(1, statementId.bytes, queryString, clientState, prepared.statement, null);
 
             return new ResultMessage.Prepared(statementId, prepared);
         }
     }
 
-    public ResultMessage processPrepared(CQLStatement statement, QueryState queryState, QueryOptions options)
+    public ResultMessage processPrepared(Object statementId, CQLStatement statement, QueryState queryState, QueryOptions options)
     throws RequestExecutionException, RequestValidationException
     {
-        // todo append to the log the values and id of the executed prepared statement
-
         List<ByteBuffer> variables = options.getValues();
         // Check to see if there are any bound variables to verify
         if (!(variables.isEmpty() && (statement.getBoundTerms() == 0)))
@@ -312,6 +311,21 @@ public class QueryProcessor implements QueryHandler
                 for (int i = 0; i < variables.size(); i++)
                     logger.trace("[{}] '{}'", i+1, variables.get(i));
         }
+
+        // todo WIP, this is wasteful, avoid looping bb array twice
+        int size = 0;
+        for (ByteBuffer bb : variables)
+            size += bb.limit();
+
+        ByteBuffer variablesClone = ByteBuffer.allocate(size + 10);
+        for (ByteBuffer bb : variables)
+        {
+            byte[] val = new byte[bb.limit()];
+            variablesClone.putInt(val.length);  // so we know how many bytes to read
+            variablesClone.put(val);            // actuall value
+        }
+
+        maybeLogQuery(2, ((MD5Digest)statementId).bytes, "", queryState.getClientState(), statement, variables);
 
         return processStatement(statement, queryState, options);
     }
@@ -384,32 +398,46 @@ public class QueryProcessor implements QueryHandler
     /**
      * Checks if query should be logged based on whether it has been enabled
      * via JMX and if the query is on a non-system keyspace.
+     * @param statementType
+     * @param statementId
      * @param queryString query to be saved
-     * @param client
+     * @param client statement's ClientState to be used for execution.
      * @param statement parsed query used to retrieve keyspace
      */
-    private static void maybeLogQuery(String queryString, ClientState client, CQLStatement statement)
+    private static void maybeLogQuery(int statementType, byte [] statementId, String queryString, ClientState client, CQLStatement statement, List<ByteBuffer> vars)
     {
+
         QueryRecorder queryRecorder = StorageService.instance.getQueryRecorder();
         // dont log query if SS#queryRecorder is null as the logging hasn't yet been enabled.
-        if (queryRecorder == null)
+        if (queryRecorder == null || isSystemOrTraceKS(statement, client))
             return;
-        Integer frequency = queryRecorder.getFrequency();
 
-        // check if query recording is enabled and whether client state has a keyspace set or the queryString contains
-        // the system ks. The empty space before is especially important to avoid a situation with secondary indexes on
-        // a non system table, e.g. customKeyspace.system.Idx1
-        if (frequency != null && !isSystemOrTraceKS(statement, client))
+        Integer frequency = queryRecorder.getFrequency();
+        // when at the nth query, append query to the log
+        if (querylogCounter.getAndIncrement() % frequency == 0)
         {
-            // when at the nth query, append query to the log
-            if (querylogCounter.getAndIncrement() % frequency == 0)
+            // todo This is very expensive, it hurts the read/write path.
+            //      possible rework is to pass strings along the chain of
+            //      calls as a parameter to each method to avoid having to
+            //      duplicate so many BBs.
+            List<ByteBuffer> varsClone = new ArrayList<>();
+            if (vars != null)
             {
-                queryRecorder.allocate(queryString);
-                logger.debug("Recorded query {}", queryString);
+                Iterator<ByteBuffer> ivars = vars.iterator();
+                while (ivars.hasNext())
+                    varsClone.add(ivars.next().duplicate());
             }
+            queryRecorder.allocate((short)statementType, statementId, queryString, varsClone);
+            logger.debug("Recorded query {}", queryString);
         }
     }
 
+    /**
+     * Check if a statement is issued on the 'system' or 'system_trace' keyspaces.
+     * @param statement CQLStatement to be verified.
+     * @param state statement's ClientState to be used for execution.
+     * @return boolean representing whether a statement is issued on the system/trace keyspaces.
+     */
     private static boolean isSystemOrTraceKS(CQLStatement statement, ClientState state)
     {
         try

@@ -30,6 +30,6 @@ public interface QueryHandler
     public ResultMessage.Prepared prepare(String query, QueryState state) throws RequestValidationException;
     public CQLStatement getPrepared(MD5Digest id);
     public CQLStatement getPreparedForThrift(Integer id);
-    public ResultMessage processPrepared(CQLStatement statement, QueryState state, QueryOptions options) throws RequestExecutionException, RequestValidationException;
+    public ResultMessage processPrepared(Object statementId, CQLStatement statement, QueryState state, QueryOptions options) throws RequestExecutionException, RequestValidationException;
     public ResultMessage processBatch(BatchStatement statement, QueryState state, BatchQueryOptions options) throws RequestExecutionException, RequestValidationException;
 }

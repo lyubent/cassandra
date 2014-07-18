@@ -18,6 +18,8 @@
 package org.apache.cassandra.cql3.recording;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -46,7 +48,7 @@ public class QueryRecorder
         QUERYLOG_DIR = queryLogDirectory;
     }
 
-    public void allocate(String queryString)
+    public void allocate(short statementType, byte[] statementId, String queryString, List<ByteBuffer> vars)
     {
         if (queryQueue.get() == null)
             queryQueue.compareAndSet(null, new QueryQueue(logLimit));
@@ -55,7 +57,7 @@ public class QueryRecorder
         try
         {
             byte [] queryBytes = queryString.getBytes();
-            int size = calcSegmentSize(queryBytes);
+            int size = calcSegmentSize(statementType, queryBytes, vars, statementId);
 
             while (true)
             {
@@ -65,7 +67,7 @@ public class QueryRecorder
                 // check for room in queue first
                 if (position >= 0)
                 {
-                    append(queryBytes, q);
+                    append(statementType, statementId, queryBytes, q, vars);
                     break;
                 }
                 // recycle QueryQueues to avoid re-allocating.
@@ -99,28 +101,67 @@ public class QueryRecorder
     /**
      * Appends nth query to the query log queue.
      *
-     * @param logSegment Query to be recorded to the query log
+     * @param statementType short representing statement type
+     *                      0 = a query string statement executed on the fly
+     *                      1 = a prepared statement without concrete values
+     *                      2 = concrete values of a prepared statement
+     * @param statementId   The byte[] that is hashed by MD5
+     * @param logSegment    Query to be recorded to the query log
+     * @param queue         QueryQueue object storing the queries being executed
+     * @param vars          ByteBuffer list of concrete values (null if statement is of type 0 or 1)
      */
-    private void append(byte [] logSegment, QueryQueue queue)
+    private void append(short statementType, byte[] statementId, byte [] logSegment, QueryQueue queue, List<ByteBuffer> vars)
     {
         long timestamp = FBUtilities.timestampMicros();
-        System.out.println("ts: " + timestamp + "  ls.lenght: " + logSegment.length);
-
+        // add this section for all 3 statements.
         queue.getQueue().putLong(timestamp)
+                        .putShort(statementType)
                         .putInt(logSegment.length)
                         .put(logSegment);
+
+        // add satatement id to type1 (todo WIP: might actually not need this id in statement type 1)
+        if (statementType != 0)
+            queue.getQueue().put(statementId);
+
+        if (statementType == 2)
+        {
+            int totalSize = 0;
+            for (ByteBuffer bb : vars)
+                totalSize += bb.limit();
+
+            queue.getQueue().putInt(totalSize);
+
+            for (ByteBuffer bb : vars)
+                queue.getQueue().putInt(bb.limit()) // lenght
+                                .put(bb);           // data
+        }
     }
 
     /**
      * Calculates size of a query segment
-     * 8: long (timestamp), 4: int (query length), n: query string
+     * Type 0: 8 - long (timestamp), 2 - short (statement type), 4 - int (query length), n - query string
+     * Type 1: 8 - long (timestamp), 2 - short (statement type), 4 - int (query length), n - query string
+     * Type 2: 8 - long (timestamp), 2 - short (statement type),
      *
      * @param queryBytes query for which to calculate size
      * @return
      */
-    private int calcSegmentSize(byte[] queryBytes)
+    private int calcSegmentSize(int statementType, byte[] queryBytes, List<ByteBuffer> vars, byte[] statementId)
     {
-        return 8 + 4 + queryBytes.length;
+        int size = 8 + 4 + queryBytes.length + 2;
+        // statement id
+        if (statementType != 0)
+            size += statementId.length;
+
+        // 4 bytes for total size of all vars. Size of each buffer and 4 bytes for size of each var.
+        if (statementType == 2)
+        {
+            size += 4;
+            for (ByteBuffer bb : vars)
+                size += bb.limit() + 4;
+        }
+
+        return size;
     }
 
     public Integer getFrequency()

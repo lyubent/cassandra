@@ -1979,7 +1979,8 @@ public class CassandraServer implements Cassandra.Iface
                                                                 itemId));
             logger.trace("Retrieved prepared statement #{} with {} bind markers", itemId, statement.getBoundTerms());
 
-            return cState.getCQLQueryHandler().processPrepared(statement,
+            return cState.getCQLQueryHandler().processPrepared(itemId,
+                                                               statement,
                                                                cState.getQueryState(),
                                                                new QueryOptions(ThriftConversion.fromThrift(cLevel), bindVariables)).toThriftResult();
         }

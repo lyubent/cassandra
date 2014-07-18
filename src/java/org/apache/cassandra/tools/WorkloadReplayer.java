@@ -19,18 +19,29 @@ package org.apache.cassandra.tools;
 
 import java.io.*;
 import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.Uninterruptibles;
-import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.commons.cli.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.cql3.CQLStatement;
+import org.apache.cassandra.cql3.QueryOptions;
+import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.cassandra.exceptions.InvalidRequestException;
+import org.apache.cassandra.exceptions.RequestExecutionException;
+import org.apache.cassandra.exceptions.RequestValidationException;
+import org.apache.cassandra.service.QueryState;
+import org.apache.cassandra.thrift.ConsistencyLevel;
+import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.thrift.*;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.MD5Digest;
 import org.apache.cassandra.utils.WrappedRunnable;
+
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.TException;
 
@@ -49,7 +60,7 @@ public class WorkloadReplayer
         options.addOption("h",  "help",       false, "print help information.");
     }
 
-    public static void main(String [] args) throws ParseException, IOException, InvalidRequestException
+    public static void main(String [] args) throws Exception
     {
         if (args.length == 0)
         {
@@ -73,12 +84,13 @@ public class WorkloadReplayer
         if (!log.exists() || !log.canRead())
             throw new InvalidRequestException(String.format("QueryLog %s doesn't exist or you don't have READ permissions.", logPath));
 
-        File [] logPaths = log.listFiles();
+        // todo need to sort file[] based on timestamps, oldest first
 
         // replay one log at a time
-        for (File path : logPaths)
+        for (File path : log.listFiles())
             if (path.getName().contains("QueryLog.log"))
                 replay(replayWait, timeout, host, port, read(path));
+
     }
 
     /**
@@ -87,7 +99,7 @@ public class WorkloadReplayer
      * @return Iterable<QuerylogSegment> A list of objects containing the timestamp and query string
      * @throws IOException
      */
-    public static Iterable<QuerylogSegment> read(File logPath) throws IOException
+    public static Iterable<QuerylogSegment> read(File logPath) throws RequestValidationException, RequestExecutionException
     {
         List<QuerylogSegment> queries = new ArrayList<>();
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(logPath))))
@@ -95,10 +107,59 @@ public class WorkloadReplayer
             while (dis.available() > 0)
             {
                 long timestamp = dis.readLong();
-                int queryLength = dis.readInt();
-                byte[] queryString = new byte[queryLength];
-                dis.read(queryString, 0, queryString.length);
-                queries.add(new QuerylogSegment(timestamp, queryString));
+                short prepared = dis.readShort();
+
+                switch (prepared)
+                {
+                    case 0: // regular statement containing both queryString and values.
+                        int queryLength = dis.readInt();
+                        byte[] queryString = new byte[queryLength];
+                        dis.read(queryString, 0, queryString.length);
+                        queries.add(new QuerylogSegment(timestamp, queryString));
+                        break;
+
+                    case 1:
+                        int queryLength2 = dis.readInt();
+                        byte[] queryString2 = new byte[queryLength2];
+                        dis.read(queryString2, 0, queryString2.length);
+                        byte[] stmtId = new byte[16];
+                        dis.read(stmtId, 0, 16);
+                        // store statement for later use when concrete values of statements with the same id are hit
+                        QueryProcessor.instance.prepare(new String(queryString2), QueryState.forInternalCalls());
+                        break;
+
+                    case 2:
+                        int queryLenght3 = dis.readInt();
+                        byte[] logSegment = new byte[queryLenght3];
+                        dis.read(logSegment, 0, logSegment.length);
+
+                        byte[] stmtId2 = new byte[16];
+                        dis.read(stmtId2, 0, 16);
+
+                        int total = dis.readInt();
+                        int loadedVarSize = 0;
+
+                        ArrayList<ByteBuffer> vars = new ArrayList<>();
+                        while (loadedVarSize < total)
+                        {
+                            int tempVarLenght = dis.readInt();
+                            byte[] var = new byte[tempVarLenght];
+
+                            dis.read(var, 0, var.length);
+                            vars.add(ByteBuffer.wrap(var));
+                            loadedVarSize += tempVarLenght;
+                        }
+
+                        MD5Digest statementId = MD5Digest.wrap(stmtId2);
+                        QueryOptions qp = new QueryOptions(org.apache.cassandra.db.ConsistencyLevel.ONE, vars);
+                        CQLStatement cs = QueryProcessor.instance.getPrepared(statementId);
+
+                        QueryProcessor.instance.processPrepared(statementId, cs, QueryState.forInternalCalls(), qp);
+                        break;
+
+                    default:
+                        throw new RuntimeException(String.format("Unrecognised statement type: %s", prepared));
+                }
             }
         }
         catch (IOException iox)

@@ -127,7 +127,7 @@ public class ExecuteMessage extends Message.Request
                 Tracing.instance.begin("Execute CQL3 prepared query", builder.build());
             }
 
-            Message.Response response = handler.processPrepared(statement, state, options);
+            Message.Response response = handler.processPrepared(statementId, statement, state, options);
             if (options.skipMetadata() && response instanceof ResultMessage.Rows)
                 ((ResultMessage.Rows)response).result.metadata.setSkipMetadata();
 
