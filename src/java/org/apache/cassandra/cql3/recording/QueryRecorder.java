@@ -132,8 +132,8 @@ public class QueryRecorder
             queue.getQueue().putInt(totalSize);
 
             for (ByteBuffer bb : vars)
-                queue.getQueue().putInt(bb.limit()) // lenght
-                                .put(bb);           // data
+                queue.getQueue().putInt(bb.limit())     // length
+                                .put(bb.duplicate());   // data
         }
     }
 

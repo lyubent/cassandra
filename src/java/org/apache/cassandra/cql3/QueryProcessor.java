@@ -286,7 +286,6 @@ public class QueryProcessor implements QueryHandler
                                        statementId,
                                        prepared.statement.getBoundTerms()));
 
-            // todo save the id and queryString of the preparared statement
             maybeLogQuery(1, statementId.bytes, queryString, clientState, prepared.statement, null);
 
             return new ResultMessage.Prepared(statementId, prepared);
@@ -312,20 +311,8 @@ public class QueryProcessor implements QueryHandler
                     logger.trace("[{}] '{}'", i+1, variables.get(i));
         }
 
-        // todo WIP, this is wasteful, avoid looping bb array twice
-        int size = 0;
-        for (ByteBuffer bb : variables)
-            size += bb.limit();
-
-        ByteBuffer variablesClone = ByteBuffer.allocate(size + 10);
-        for (ByteBuffer bb : variables)
-        {
-            byte[] val = new byte[bb.limit()];
-            variablesClone.putInt(val.length);  // so we know how many bytes to read
-            variablesClone.put(val);            // actuall value
-        }
-
-        maybeLogQuery(2, ((MD5Digest)statementId).bytes, "", queryState.getClientState(), statement, variables);
+        if (statementId instanceof MD5Digest)
+            maybeLogQuery(2, ((MD5Digest) statementId).bytes, "", queryState.getClientState(), statement, variables);
 
         return processStatement(statement, queryState, options);
     }
@@ -404,7 +391,7 @@ public class QueryProcessor implements QueryHandler
      * @param client statement's ClientState to be used for execution.
      * @param statement parsed query used to retrieve keyspace
      */
-    private static void maybeLogQuery(int statementType, byte [] statementId, String queryString, ClientState client, CQLStatement statement, List<ByteBuffer> vars)
+    private static void maybeLogQuery(int statementType, byte[] statementId, String queryString, ClientState client, CQLStatement statement, List<ByteBuffer> vars)
     {
 
         QueryRecorder queryRecorder = StorageService.instance.getQueryRecorder();
@@ -416,18 +403,7 @@ public class QueryProcessor implements QueryHandler
         // when at the nth query, append query to the log
         if (querylogCounter.getAndIncrement() % frequency == 0)
         {
-            // todo This is very expensive, it hurts the read/write path.
-            //      possible rework is to pass strings along the chain of
-            //      calls as a parameter to each method to avoid having to
-            //      duplicate so many BBs.
-            List<ByteBuffer> varsClone = new ArrayList<>();
-            if (vars != null)
-            {
-                Iterator<ByteBuffer> ivars = vars.iterator();
-                while (ivars.hasNext())
-                    varsClone.add(ivars.next().duplicate());
-            }
-            queryRecorder.allocate((short)statementType, statementId, queryString, varsClone);
+            queryRecorder.allocate((short)statementType, statementId, queryString, vars);
             logger.debug("Recorded query {}", queryString);
         }
     }

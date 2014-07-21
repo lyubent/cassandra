@@ -27,16 +27,8 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.cli.*;
 
 import org.apache.cassandra.config.DatabaseDescriptor;
-import org.apache.cassandra.cql3.CQLStatement;
-import org.apache.cassandra.cql3.QueryOptions;
-import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.cassandra.exceptions.InvalidRequestException;
-import org.apache.cassandra.exceptions.RequestExecutionException;
-import org.apache.cassandra.exceptions.RequestValidationException;
-import org.apache.cassandra.service.QueryState;
-import org.apache.cassandra.thrift.ConsistencyLevel;
-import org.apache.cassandra.transport.messages.ResultMessage;
 import org.apache.cassandra.thrift.*;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.MD5Digest;
@@ -99,7 +91,7 @@ public class WorkloadReplayer
      * @return Iterable<QuerylogSegment> A list of objects containing the timestamp and query string
      * @throws IOException
      */
-    public static Iterable<QuerylogSegment> read(File logPath) throws RequestValidationException, RequestExecutionException
+    public static Iterable<QuerylogSegment> read(File logPath)
     {
         List<QuerylogSegment> queries = new ArrayList<>();
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(logPath))))
@@ -107,15 +99,15 @@ public class WorkloadReplayer
             while (dis.available() > 0)
             {
                 long timestamp = dis.readLong();
-                short prepared = dis.readShort();
+                short statementType = dis.readShort();
 
-                switch (prepared)
+                switch (statementType)
                 {
                     case 0: // regular statement containing both queryString and values.
                         int queryLength = dis.readInt();
                         byte[] queryString = new byte[queryLength];
                         dis.read(queryString, 0, queryString.length);
-                        queries.add(new QuerylogSegment(timestamp, queryString));
+                        queries.add(new QuerylogSegment(timestamp, null, queryString, QuerylogSegment.SegmentType.QUERY_STRING));
                         break;
 
                     case 1:
@@ -124,8 +116,8 @@ public class WorkloadReplayer
                         dis.read(queryString2, 0, queryString2.length);
                         byte[] stmtId = new byte[16];
                         dis.read(stmtId, 0, 16);
-                        // store statement for later use when concrete values of statements with the same id are hit
-                        QueryProcessor.instance.prepare(new String(queryString2), QueryState.forInternalCalls());
+
+                        queries.add(new QuerylogSegment(timestamp, MD5Digest.wrap(stmtId), queryString2, QuerylogSegment.SegmentType.PREPARED_STATEMENT));
                         break;
 
                     case 2:
@@ -139,7 +131,7 @@ public class WorkloadReplayer
                         int total = dis.readInt();
                         int loadedVarSize = 0;
 
-                        ArrayList<ByteBuffer> vars = new ArrayList<>();
+                        List<ByteBuffer> vars = new ArrayList<>();
                         while (loadedVarSize < total)
                         {
                             int tempVarLenght = dis.readInt();
@@ -149,16 +141,11 @@ public class WorkloadReplayer
                             vars.add(ByteBuffer.wrap(var));
                             loadedVarSize += tempVarLenght;
                         }
-
-                        MD5Digest statementId = MD5Digest.wrap(stmtId2);
-                        QueryOptions qp = new QueryOptions(org.apache.cassandra.db.ConsistencyLevel.ONE, vars);
-                        CQLStatement cs = QueryProcessor.instance.getPrepared(statementId);
-
-                        QueryProcessor.instance.processPrepared(statementId, cs, QueryState.forInternalCalls(), qp);
+                        queries.add(new QuerylogSegment(timestamp, MD5Digest.wrap(stmtId2), vars, QuerylogSegment.SegmentType.PREPARED_STATEMENT_VARS));
                         break;
 
                     default:
-                        throw new RuntimeException(String.format("Unrecognised statement type: %s", prepared));
+                        throw new RuntimeException(String.format("Unrecognised statement type: %s", statementType));
                 }
             }
         }
@@ -191,15 +178,38 @@ public class WorkloadReplayer
             {
                 Long previousTimestamp = 0L;
                 Cassandra.Client client = createThriftClient(host, port);
+                Map<MD5Digest, Integer> preparedMap = new HashMap<>();
 
                 for (QuerylogSegment query : queries)
                 {
-                    Long gapBetweenQueryExecutionTime = query.getTimestamp() - previousTimestamp;
-                    // set max wait time to 10 sec
-                    if(gapBetweenQueryExecutionTime > timeout)
-                        gapBetweenQueryExecutionTime = timeout;
+                    Long queryGap = 0L;
+                    if (rapidReplay)
+                    {
+                        queryGap = query.getTimestamp() - previousTimestamp > timeout
+                                 ? timeout
+                                 : query.getTimestamp() - previousTimestamp;
+                    }
+
                     previousTimestamp = query.getTimestamp();
-                    executeQuery(rapidReplay, gapBetweenQueryExecutionTime, query.getQueryString(), client);
+
+                    switch (query.queryType)
+                    {
+                        case QUERY_STRING:
+                            executeString(queryGap, query.getQueryString(), client);
+                            break;
+
+                        case PREPARED_STATEMENT:
+                            CqlPreparedResult cpr = client.prepare_cql3_query(ByteBufferUtil.bytes(query.getQueryString()), Compression.NONE);
+                            preparedMap.put(query.getStatementId(), cpr.getItemId());
+                            break;
+
+                        case PREPARED_STATEMENT_VARS:
+                            executePrepared(queryGap, preparedMap.get(query.getStatementId()), client, query.getValues());
+                            break;
+
+                        default:
+                            throw new RuntimeException(String.format("Unrecognised query type %s", query.queryType));
+                    }
                 }
             }
         };
@@ -209,24 +219,37 @@ public class WorkloadReplayer
 
     /**
      * Execute a cql3 query via thrift.
-     * @param rapidReplay Whether to ignore delay between queries, true means replay as fast as possible.
      * @param queryGap Gap between current and previous query
      * @param query CQL3 query string
-     * @param thriftClient Client for query replay
+     * @paraj client Thrift client for query replay
      * @throws TException
      */
     // todo possibly swap to use java driver here.
-    public static void executeQuery(boolean rapidReplay, long queryGap, String query, Cassandra.Client thriftClient)
+    public static void executeString(long queryGap, String query, Cassandra.Client client)
     throws TException
     {
         out.print(String.format("Processing %s", query));
-        if (rapidReplay)
+        if (queryGap > 0)
         {
             out.print(String.format(" with delay of %d ms.", queryGap/1000));
             Uninterruptibles.sleepUninterruptibly(queryGap, TimeUnit.MICROSECONDS);
         }
         out.println();
-        thriftClient.execute_cql3_query(ByteBufferUtil.bytes(query), Compression.NONE, ConsistencyLevel.ONE);
+
+        client.execute_cql3_query(ByteBufferUtil.bytes(query), Compression.NONE, ConsistencyLevel.ONE);
+    }
+
+    public static void executePrepared(long queryGap, int statementId, Cassandra.Client client, List<ByteBuffer> vars)
+    throws TException
+    {
+        out.print(String.format("Processing prepared statement %s", statementId));
+        if (queryGap > 0)
+        {
+            out.print(String.format(" with delay of %d ms.", queryGap/1000));
+            Uninterruptibles.sleepUninterruptibly(queryGap, TimeUnit.MICROSECONDS);
+        }
+        out.println();
+        client.execute_prepared_cql3_query(statementId, vars, ConsistencyLevel.ONE);
     }
 
     public static Cassandra.Client createThriftClient(String host, int port)
@@ -240,8 +263,8 @@ public class WorkloadReplayer
             Map<String, String> credentials = new HashMap<>();
             AuthenticationRequest authenticationRequest = new AuthenticationRequest(credentials);
             client.login(authenticationRequest);
-            return client;
 
+            return client;
         }
         catch (TException ex)
         {

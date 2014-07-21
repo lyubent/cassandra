@@ -17,23 +17,42 @@
  */
 package org.apache.cassandra.cql3.recording;
 
+import java.util.List;
+import java.nio.ByteBuffer;
+
+import org.apache.cassandra.utils.MD5Digest;
+
 public class QuerylogSegment
 {
-    long timestamp;
-    String queryString;
+    private final long timestamp;
+    private final String queryString;
+    public final SegmentType queryType;
+    private final List<ByteBuffer> vars;
+    private final MD5Digest statementId;
 
-    // todo need to store both query strings (type 0 statements) and vars
-    //      of prepared statements (type 2 statements)
-    enum SegmentType
+    public static enum SegmentType
     {
         QUERY_STRING,
+        PREPARED_STATEMENT,
         PREPARED_STATEMENT_VARS
     }
 
-    public QuerylogSegment(long timestamp, byte[] queryString)
+    public QuerylogSegment(long timestamp, MD5Digest statementId, byte[] queryString, SegmentType queryType)
     {
         this.timestamp = timestamp;
         this.queryString = new String(queryString);
+        this.queryType = queryType;
+        this.vars = null;
+        this.statementId = statementId;
+    }
+
+    public QuerylogSegment(long timestamp, MD5Digest statementId, List<ByteBuffer> vars, SegmentType queryType)
+    {
+        this.timestamp = timestamp;
+        this.queryString = null;
+        this.queryType = queryType;
+        this.vars = vars;
+        this.statementId = statementId;
     }
 
     public long getTimestamp()
@@ -44,6 +63,16 @@ public class QuerylogSegment
     public String getQueryString()
     {
         return queryString;
+    }
+
+    public MD5Digest getStatementId()
+    {
+        return statementId;
+    }
+
+    public List<ByteBuffer> getValues()
+    {
+        return vars;
     }
 
     @Override
