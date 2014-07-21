@@ -57,6 +57,7 @@ import org.apache.cassandra.io.sstable.CorruptSSTableException;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.metrics.StorageMetrics;
 import org.apache.cassandra.thrift.ThriftServer;
+import org.apache.cassandra.tools.WriteValueReporter;
 import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.CLibrary;
 import org.apache.cassandra.utils.FBUtilities;
@@ -361,6 +362,15 @@ public class CassandraDaemon
                 logger.warn("Failed to load metrics-reporter-config, metric sinks will not be activated", e);
             }
         }
+        String writeValueMetrics = System.getProperty("cassandra.writeValueMetrics");
+        if (writeValueMetrics != null)
+        {
+            File f = new File(writeValueMetrics);
+            f.mkdir();
+            WriteValueReporter reporter = new WriteValueReporter(f);
+            reporter.start(5, TimeUnit.SECONDS);
+        }
+
 
         if (!FBUtilities.getBroadcastAddress().equals(InetAddress.getLoopbackAddress()))
             waitForGossipToSettle();
