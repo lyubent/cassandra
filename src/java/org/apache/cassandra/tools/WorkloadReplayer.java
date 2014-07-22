@@ -21,7 +21,7 @@ import java.io.*;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.cli.*;
@@ -100,19 +100,21 @@ public class WorkloadReplayer
             {
                 long timestamp = dis.readLong();
                 short statementType = dis.readShort();
+                int queryLength = dis.readInt();
+                // todo WIP : build an ExecutorService of threads to be executed in parallel
+                long threadId = dis.readLong();
+                int threadPriority = dis.readInt();
 
                 switch (statementType)
                 {
                     case 0: // regular statement containing both queryString and values.
-                        int queryLength = dis.readInt();
                         byte[] queryString = new byte[queryLength];
                         dis.read(queryString, 0, queryString.length);
                         queries.add(new QuerylogSegment(timestamp, null, queryString, QuerylogSegment.SegmentType.QUERY_STRING));
                         break;
 
                     case 1:
-                        int queryLength2 = dis.readInt();
-                        byte[] queryString2 = new byte[queryLength2];
+                        byte[] queryString2 = new byte[queryLength];
                         dis.read(queryString2, 0, queryString2.length);
                         byte[] stmtId = new byte[16];
                         dis.read(stmtId, 0, 16);
@@ -121,8 +123,7 @@ public class WorkloadReplayer
                         break;
 
                     case 2:
-                        int queryLenght3 = dis.readInt();
-                        byte[] logSegment = new byte[queryLenght3];
+                        byte[] logSegment = new byte[queryLength];
                         dis.read(logSegment, 0, logSegment.length);
 
                         byte[] stmtId2 = new byte[16];
@@ -192,6 +193,7 @@ public class WorkloadReplayer
 
                     previousTimestamp = query.getTimestamp();
 
+
                     switch (query.queryType)
                     {
                         case QUERY_STRING:
@@ -214,6 +216,8 @@ public class WorkloadReplayer
             }
         };
         runnable = new Thread(runnable, "WORKLOAD-REPLAYER");
+        // todo WIP : build an ExecutorService of threads to be executed in parallel
+        //            rather than executing here.
         runnable.run();
     }
 

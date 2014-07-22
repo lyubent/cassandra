@@ -393,7 +393,6 @@ public class QueryProcessor implements QueryHandler
      */
     private static void maybeLogQuery(int statementType, byte[] statementId, String queryString, ClientState client, CQLStatement statement, List<ByteBuffer> vars)
     {
-
         QueryRecorder queryRecorder = StorageService.instance.getQueryRecorder();
         // dont log query if SS#queryRecorder is null as the logging hasn't yet been enabled.
         if (queryRecorder == null || isSystemOrTraceKS(statement, client))
@@ -403,7 +402,8 @@ public class QueryProcessor implements QueryHandler
         // when at the nth query, append query to the log
         if (querylogCounter.getAndIncrement() % frequency == 0)
         {
-            queryRecorder.allocate((short)statementType, statementId, queryString, vars);
+            final Thread t = Thread.currentThread();
+            queryRecorder.allocate((short)statementType, statementId, queryString, t.getId(), t.getPriority(), vars);
             logger.debug("Recorded query {}", queryString);
         }
     }

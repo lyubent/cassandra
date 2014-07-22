@@ -48,7 +48,7 @@ public class QueryRecorder
         QUERYLOG_DIR = queryLogDirectory;
     }
 
-    public void allocate(short statementType, byte[] statementId, String queryString, List<ByteBuffer> vars)
+    public void allocate(short statementType, byte[] statementId, String queryString, long threadId, int threadPriority, List<ByteBuffer> vars)
     {
         if (queryQueue.get() == null)
             queryQueue.compareAndSet(null, new QueryQueue(logLimit));
@@ -67,7 +67,7 @@ public class QueryRecorder
                 // check for room in queue first
                 if (position >= 0)
                 {
-                    append(statementType, statementId, queryBytes, q, vars);
+                    append(statementType, statementId, queryBytes, threadId, threadPriority, q, vars);
                     break;
                 }
                 // recycle QueryQueues to avoid re-allocating.
@@ -101,22 +101,32 @@ public class QueryRecorder
     /**
      * Appends nth query to the query log queue.
      *
-     * @param statementType short representing statement type
-     *                      0 = a query string statement executed on the fly
-     *                      1 = a prepared statement without concrete values
-     *                      2 = concrete values of a prepared statement
-     * @param statementId   The byte[] that is hashed by MD5
-     * @param logSegment    Query to be recorded to the query log
-     * @param queue         QueryQueue object storing the queries being executed
-     * @param vars          ByteBuffer list of concrete values (null if statement is of type 0 or 1)
+     * @param statementType  short representing statement type
+     *                       0 = a query string statement executed on the fly
+     *                       1 = a prepared statement without concrete values
+     *                       2 = concrete values of a prepared statement
+     * @param statementId    The byte[] that is hashed by MD5
+     * @param logSegment     Query to be recorded to the query log
+     * @param threadId       Integer representing the id of the thread executing the query
+     * @param threadPriority Priority of the thread executing the query.
+     * @param queue          QueryQueue object storing the queries being executed
+     * @param vars           ByteBuffer list of concrete values (null if statement is of type 0 or 1)
      */
-    private void append(short statementType, byte[] statementId, byte [] logSegment, QueryQueue queue, List<ByteBuffer> vars)
+    private void append(short statementType,
+                        byte[] statementId,
+                        byte [] logSegment,
+                        long threadId,
+                        int threadPriority,
+                        QueryQueue queue,
+                        List<ByteBuffer> vars)
     {
         long timestamp = FBUtilities.timestampMicros();
         // add this section for all 3 statements.
         queue.getQueue().putLong(timestamp)
                         .putShort(statementType)
                         .putInt(logSegment.length)
+                        .putLong(threadId)
+                        .putInt(threadPriority)
                         .put(logSegment);
 
         // add satatement id to type1 (todo WIP: might actually not need this id in statement type 1)
@@ -139,16 +149,21 @@ public class QueryRecorder
 
     /**
      * Calculates size of a query segment
-     * Type 0: 8 - long (timestamp), 2 - short (statement type), 4 - int (query length), n - query string
-     * Type 1: 8 - long (timestamp), 2 - short (statement type), 4 - int (query length), n - query string
-     * Type 2: 8 - long (timestamp), 2 - short (statement type),
+     * All types: 8 - long (timestamp), 2 - short (statement type), 4 - int (query string length),
+     *            8 - long (thread id), 4 - int (thread priority), n - String (query string)
+     *
+     * Special cases per segment type:
+     * Type 0: n - query string
+     * Type 1: 16 - uuid (statementId)
+     * Type 2: 4 - int (total length of all concrete values), (n + 4) * n - ints + byte buffers variable
+     *                  length (int for length of concrete value, and bb for the value itself)
      *
      * @param queryBytes query for which to calculate size
      * @return
      */
     private int calcSegmentSize(int statementType, byte[] queryBytes, List<ByteBuffer> vars, byte[] statementId)
     {
-        int size = 8 + 4 + queryBytes.length + 2;
+        int size = 8 + 2 + 4 + 8 + 4 + queryBytes.length;
         // statement id
         if (statementType != 0)
             size += statementId.length;
