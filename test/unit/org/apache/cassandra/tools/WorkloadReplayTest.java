@@ -50,6 +50,7 @@ public class WorkloadReplayTest extends SchemaLoader
     private static final File LOGLOCATION = Files.createTempDir();
     private static ThriftServer thriftServer;
     private static final String countQuery = "SELECT count(*) FROM \"Keyspace1\".\"StandardReplay\"";
+    private static final WorkloadReplayer replayInstance = new WorkloadReplayer();
 
     @Before
     public void setUp() throws Exception
@@ -106,12 +107,12 @@ public class WorkloadReplayTest extends SchemaLoader
 
         // replay without timeout
         for (File logLocation : logs)
-            WorkloadReplayer.replay(false, 1000000, host, port, WorkloadReplayer.read(logLocation));
+            replayInstance.replay(false, 1000000, host, port, replayInstance.read(logLocation));
         UntypedResultSet replayResult = QueryProcessor.processInternal(countQuery);
         assertEquals(100, replayResult.one().getLong("count"));
         // replay with timeout of 1s and with delay simulation.
         for (File logLocation : logs)
-            WorkloadReplayer.replay(true, 1000000, host, port, WorkloadReplayer.read(logLocation));
+            replayInstance.replay(true, 1000000, host, port, replayInstance.read(logLocation));
         UntypedResultSet replayResultWithDelay = QueryProcessor.processInternal(countQuery);
         assertEquals(200, replayResultWithDelay.one().getLong("count"));
 
@@ -163,7 +164,7 @@ public class WorkloadReplayTest extends SchemaLoader
 
         // // replay without timeout
         for (File logLocation : logs)
-             WorkloadReplayer.replay(false, 1000000, host, port, WorkloadReplayer.read(logLocation));
+            replayInstance.replay(false, 1000000, host, port, replayInstance.read(logLocation));
         UntypedResultSet replayResult = QueryProcessor.processInternal(countQuery);
         assertEquals(50, replayResult.one().getLong("count"));
 

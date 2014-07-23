@@ -48,7 +48,7 @@ public class QueryRecorder
         QUERYLOG_DIR = queryLogDirectory;
     }
 
-    public void allocate(short statementType, byte[] statementId, String queryString, long threadId, int threadPriority, List<ByteBuffer> vars)
+    public void allocate(short statementType, byte[] statementId, String queryString, long threadId, List<ByteBuffer> vars)
     {
         if (queryQueue.get() == null)
             queryQueue.compareAndSet(null, new QueryQueue(logLimit));
@@ -67,7 +67,7 @@ public class QueryRecorder
                 // check for room in queue first
                 if (position >= 0)
                 {
-                    append(statementType, statementId, queryBytes, threadId, threadPriority, q, vars);
+                    append(statementType, statementId, queryBytes, threadId, q, vars);
                     break;
                 }
                 // recycle QueryQueues to avoid re-allocating.
@@ -108,7 +108,6 @@ public class QueryRecorder
      * @param statementId    The byte[] that is hashed by MD5
      * @param logSegment     Query to be recorded to the query log
      * @param threadId       Integer representing the id of the thread executing the query
-     * @param threadPriority Priority of the thread executing the query.
      * @param queue          QueryQueue object storing the queries being executed
      * @param vars           ByteBuffer list of concrete values (null if statement is of type 0 or 1)
      */
@@ -116,7 +115,6 @@ public class QueryRecorder
                         byte[] statementId,
                         byte [] logSegment,
                         long threadId,
-                        int threadPriority,
                         QueryQueue queue,
                         List<ByteBuffer> vars)
     {
@@ -126,10 +124,8 @@ public class QueryRecorder
                         .putShort(statementType)
                         .putInt(logSegment.length)
                         .putLong(threadId)
-                        .putInt(threadPriority)
                         .put(logSegment);
 
-        // add satatement id to type1 (todo WIP: might actually not need this id in statement type 1)
         if (statementType != 0)
             queue.getQueue().put(statementId);
 
@@ -150,7 +146,7 @@ public class QueryRecorder
     /**
      * Calculates size of a query segment
      * All types: 8 - long (timestamp), 2 - short (statement type), 4 - int (query string length),
-     *            8 - long (thread id), 4 - int (thread priority), n - String (query string)
+     *            8 - long (thread id), n - String (query string)
      *
      * Special cases per segment type:
      * Type 0: n - query string
@@ -163,7 +159,7 @@ public class QueryRecorder
      */
     private int calcSegmentSize(int statementType, byte[] queryBytes, List<ByteBuffer> vars, byte[] statementId)
     {
-        int size = 8 + 2 + 4 + 8 + 4 + queryBytes.length;
+        int size = 8 + 2 + 4 + 8 + queryBytes.length;
         // statement id
         if (statementType != 0)
             size += statementId.length;

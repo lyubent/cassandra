@@ -402,8 +402,7 @@ public class QueryProcessor implements QueryHandler
         // when at the nth query, append query to the log
         if (querylogCounter.getAndIncrement() % frequency == 0)
         {
-            final Thread t = Thread.currentThread();
-            queryRecorder.allocate((short)statementType, statementId, queryString, t.getId(), t.getPriority(), vars);
+            queryRecorder.allocate((short)statementType, statementId, queryString, Thread.currentThread().getId(), vars);
             logger.debug("Recorded query {}", queryString);
         }
     }

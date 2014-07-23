@@ -23,9 +23,12 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.*;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.cli.*;
 
+import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.cql3.recording.QuerylogSegment;
 import org.apache.cassandra.exceptions.InvalidRequestException;
@@ -42,6 +45,13 @@ public class WorkloadReplayer
     private static final Options options = new Options();
     private static final PrintStream out = System.out;
     private static final long DEFAULT_TIMEOUT = 10000000;
+    private static final int DEFAULT_MAX_THREADS = 512;
+    private ExecutorService executor = new ThreadPoolExecutor(0,
+                                                              DEFAULT_MAX_THREADS,
+                                                              60L,
+                                                              TimeUnit.SECONDS,
+                                                              new LinkedBlockingDeque<Runnable>(),
+                                                              new NamedThreadFactory("WORKLOAD-REPLAY"));
 
     static
     {
@@ -54,6 +64,7 @@ public class WorkloadReplayer
 
     public static void main(String [] args) throws Exception
     {
+        WorkloadReplayer replayInstance = new WorkloadReplayer();
         if (args.length == 0)
         {
             printWorkloadReplayerUsage(out);
@@ -81,19 +92,20 @@ public class WorkloadReplayer
         // replay one log at a time
         for (File path : log.listFiles())
             if (path.getName().contains("QueryLog.log"))
-                replay(replayWait, timeout, host, port, read(path));
+                replayInstance.replay(replayWait, timeout, host, port, replayInstance.read(path));
 
     }
 
     /**
      * Reads the log to be replayed
      *
-     * @return Iterable<QuerylogSegment> A list of objects containing the timestamp and query string
-     * @throws IOException
+     * @param  logPath File path to the log to be replayed
+     * @return A map of the <threadId, Collection<QuerylogSegments>> to be replayed where each thread gets it's own
+     *         runnable task in an executor.
      */
-    public static Iterable<QuerylogSegment> read(File logPath)
+    public Multimap<Long, QuerylogSegment> read(File logPath)
     {
-        List<QuerylogSegment> queries = new ArrayList<>();
+        Multimap<Long, QuerylogSegment> threadedQueries = ArrayListMultimap.create();
         try (DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(logPath))))
         {
             while (dis.available() > 0)
@@ -101,16 +113,16 @@ public class WorkloadReplayer
                 long timestamp = dis.readLong();
                 short statementType = dis.readShort();
                 int queryLength = dis.readInt();
-                // todo WIP : build an ExecutorService of threads to be executed in parallel
                 long threadId = dis.readLong();
-                int threadPriority = dis.readInt();
+                QuerylogSegment qs;
 
                 switch (statementType)
                 {
                     case 0: // regular statement containing both queryString and values.
                         byte[] queryString = new byte[queryLength];
                         dis.read(queryString, 0, queryString.length);
-                        queries.add(new QuerylogSegment(timestamp, null, queryString, QuerylogSegment.SegmentType.QUERY_STRING));
+                        qs = new QuerylogSegment(timestamp, null, queryString, QuerylogSegment.SegmentType.QUERY_STRING);
+                        threadedQueries.put(threadId, qs);
                         break;
 
                     case 1:
@@ -119,7 +131,8 @@ public class WorkloadReplayer
                         byte[] stmtId = new byte[16];
                         dis.read(stmtId, 0, 16);
 
-                        queries.add(new QuerylogSegment(timestamp, MD5Digest.wrap(stmtId), queryString2, QuerylogSegment.SegmentType.PREPARED_STATEMENT));
+                        qs = new QuerylogSegment(timestamp, MD5Digest.wrap(stmtId), queryString2, QuerylogSegment.SegmentType.PREPARED_STATEMENT);
+                        threadedQueries.put(threadId, qs);
                         break;
 
                     case 2:
@@ -142,7 +155,9 @@ public class WorkloadReplayer
                             vars.add(ByteBuffer.wrap(var));
                             loadedVarSize += tempVarLenght;
                         }
-                        queries.add(new QuerylogSegment(timestamp, MD5Digest.wrap(stmtId2), vars, QuerylogSegment.SegmentType.PREPARED_STATEMENT_VARS));
+
+                        qs = new QuerylogSegment(timestamp, MD5Digest.wrap(stmtId2), vars, QuerylogSegment.SegmentType.PREPARED_STATEMENT_VARS);
+                        threadedQueries.put(threadId, qs);
                         break;
 
                     default:
@@ -155,7 +170,7 @@ public class WorkloadReplayer
             throw new RuntimeException(String.format("Error opening query log %s", logPath.getAbsolutePath()), iox);
         }
 
-        return queries;
+        return threadedQueries;
     }
 
     /**
@@ -165,60 +180,72 @@ public class WorkloadReplayer
      * @param timeout max wait time for the delay
      * @param host address of host for replay
      * @param port port of host for replay
-     * @param queries List of queries to be replayed.
+     * @param threadedQueries A map of <Long (thread id), QuerylogSegment... (collection of query segments)> for replay
      */
-    public static void replay(final boolean rapidReplay,
-                              final long timeout,
-                              final String host,
-                              final int port,
-                              final Iterable<QuerylogSegment> queries)
+    public void replay(final boolean rapidReplay,
+                       final long timeout,
+                       final String host,
+                       final int port,
+                       final Multimap<Long, QuerylogSegment> threadedQueries)
     {
-        Runnable runnable = new WrappedRunnable()
+        for (final Map.Entry<Long, Collection<QuerylogSegment>> queriesThread : threadedQueries.asMap().entrySet())
         {
-            public void runMayThrow() throws TException
+            Runnable runnable = new WrappedRunnable()
             {
-                Long previousTimestamp = 0L;
-                Cassandra.Client client = createThriftClient(host, port);
-                Map<MD5Digest, Integer> preparedMap = new HashMap<>();
-
-                for (QuerylogSegment query : queries)
+                @Override
+                public void runMayThrow() throws TException
                 {
-                    Long queryGap = 0L;
-                    if (rapidReplay)
+                    Long previousTimestamp = 0L;
+                    Cassandra.Client client = createThriftClient(host, port);
+                    Map<MD5Digest, Integer> preparedMap = new HashMap<>();
+
+                    for (QuerylogSegment query : queriesThread.getValue())
                     {
-                        queryGap = query.getTimestamp() - previousTimestamp > timeout
-                                 ? timeout
-                                 : query.getTimestamp() - previousTimestamp;
-                    }
+                        Long queryGap = 0L;
+                        if (rapidReplay)
+                        {
+                            queryGap = query.getTimestamp() - previousTimestamp > timeout
+                                     ? timeout
+                                     : query.getTimestamp() - previousTimestamp;
+                        }
 
-                    previousTimestamp = query.getTimestamp();
+                        previousTimestamp = query.getTimestamp();
 
+                        switch (query.queryType)
+                        {
+                            case QUERY_STRING:
+                                executeString(queryGap, query.getQueryString(), client);
+                                break;
 
-                    switch (query.queryType)
-                    {
-                        case QUERY_STRING:
-                            executeString(queryGap, query.getQueryString(), client);
-                            break;
+                            case PREPARED_STATEMENT:
+                                CqlPreparedResult cpr = client.prepare_cql3_query(ByteBufferUtil.bytes(query.getQueryString()), Compression.NONE);
+                                preparedMap.put(query.getStatementId(), cpr.getItemId());
+                                break;
 
-                        case PREPARED_STATEMENT:
-                            CqlPreparedResult cpr = client.prepare_cql3_query(ByteBufferUtil.bytes(query.getQueryString()), Compression.NONE);
-                            preparedMap.put(query.getStatementId(), cpr.getItemId());
-                            break;
+                            case PREPARED_STATEMENT_VARS:
+                                executePrepared(queryGap, preparedMap.get(query.getStatementId()), client, query.getValues());
+                                break;
 
-                        case PREPARED_STATEMENT_VARS:
-                            executePrepared(queryGap, preparedMap.get(query.getStatementId()), client, query.getValues());
-                            break;
-
-                        default:
-                            throw new RuntimeException(String.format("Unrecognised query type %s", query.queryType));
+                            default:
+                                throw new RuntimeException(String.format("Unrecognised query type %s", query.queryType));
+                        }
                     }
                 }
-            }
-        };
-        runnable = new Thread(runnable, "WORKLOAD-REPLAYER");
-        // todo WIP : build an ExecutorService of threads to be executed in parallel
-        //            rather than executing here.
-        runnable.run();
+            };
+            submitReplayThread(runnable);
+        }
+    }
+
+    private void submitReplayThread(Runnable r)
+    {
+        try
+        {
+            executor.submit(r).get();
+        }
+        catch (InterruptedException | ExecutionException iex)
+        {
+            throw new RuntimeException("Error with submitting query replay thread. ", iex);
+        }
     }
 
     /**
@@ -228,8 +255,7 @@ public class WorkloadReplayer
      * @paraj client Thrift client for query replay
      * @throws TException
      */
-    // todo possibly swap to use java driver here.
-    public static void executeString(long queryGap, String query, Cassandra.Client client)
+    public void executeString(long queryGap, String query, Cassandra.Client client)
     throws TException
     {
         out.print(String.format("Processing %s", query));
@@ -243,7 +269,7 @@ public class WorkloadReplayer
         client.execute_cql3_query(ByteBufferUtil.bytes(query), Compression.NONE, ConsistencyLevel.ONE);
     }
 
-    public static void executePrepared(long queryGap, int statementId, Cassandra.Client client, List<ByteBuffer> vars)
+    public void executePrepared(long queryGap, int statementId, Cassandra.Client client, List<ByteBuffer> vars)
     throws TException
     {
         out.print(String.format("Processing prepared statement %s", statementId));
