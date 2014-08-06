@@ -511,4 +511,7 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int getTombstoneFailureThreshold();
     /** Sets the threshold for abandoning queries with many tombstones */
     public void setTombstoneFailureThreshold(int tombstoneDebugThreshold);
+
+    /** Replay archived commit logs without requiring a restart */
+    public void recoverCommitlog(String pointInTime);
 }

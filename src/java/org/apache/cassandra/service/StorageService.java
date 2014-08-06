@@ -25,6 +25,7 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.text.ParseException;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,6 +66,7 @@ import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.config.Schema;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.commitlog.CommitLog;
+import org.apache.cassandra.db.commitlog.CommitLogArchiver;
 import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.index.SecondaryIndex;
 import org.apache.cassandra.dht.*;
@@ -3956,5 +3958,22 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setTombstoneFailureThreshold(int threshold)
     {
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
+    }
+
+    /** Replays commit logs in commitlog-dir */
+    public void recoverCommitlog(String pointInTime)
+    {
+        try
+        {
+            System.setProperty("custom_restore_point", String.valueOf(CommitLogArchiver.format.parse(pointInTime).getTime()));
+            CommitLog.instance.recover(false);
+
+            // keep the property clean in-case of future replays.
+            System.clearProperty("custom_restore_point");
+        }
+        catch (IOException | ParseException iopx)
+        {
+            throw new RuntimeException("Failed to replay archived commit logs.", iopx);
+        }
     }
 }

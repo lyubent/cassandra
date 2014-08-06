@@ -444,7 +444,10 @@ public class CommitLogReplayer
 
     protected boolean pointInTimeExceeded(Mutation fm)
     {
-        long restoreTarget = CommitLog.instance.archiver.restorePointInTime;
+        String customRestorePoint = System.getProperty("custom_restore_point", null);
+        long restoreTarget = customRestorePoint == null
+                           ? CommitLog.instance.archiver.restorePointInTime
+                           : Long.parseLong(customRestorePoint);
 
         for (ColumnFamily families : fm.getColumnFamilies())
         {

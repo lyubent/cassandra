@@ -90,7 +90,13 @@ public class CommitLog implements CommitLogMBean
      */
     public int recover() throws IOException
     {
-        archiver.maybeRestoreArchive();
+        return recover(true);
+    }
+
+    public int recover(boolean useCommands) throws IOException
+    {
+        if (useCommands)
+            archiver.maybeRestoreArchive();
 
         File[] files = new File(DatabaseDescriptor.getCommitLogLocation()).listFiles(new FilenameFilter()
         {

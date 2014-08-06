@@ -749,6 +749,11 @@ public class NodeProbe implements AutoCloseable
         return ssProxy.getPartitionerName();
     }
 
+    public void recoverCommitlog(String pointInTime) throws IOException
+    {
+        ssProxy.recoverCommitlog(pointInTime);
+    }
+
     public void disableHintedHandoff()
     {
         spProxy.setHintedHandoffEnabled(false);

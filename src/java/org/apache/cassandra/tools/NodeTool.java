@@ -140,7 +140,8 @@ public class NodeTool
                 TruncateHints.class,
                 TpStats.class,
                 SetLoggingLevel.class,
-                GetLoggingLevels.class
+                GetLoggingLevels.class,
+                ReplayCommitLogs.class
         );
 
         Cli<Runnable> parser = Cli.<Runnable>builder("nodetool")
@@ -1736,6 +1737,27 @@ public class NodeTool
             } catch (IOException e)
             {
                 throw new RuntimeException("Error during taking a snapshot", e);
+            }
+        }
+    }
+
+    @Command(name = "replaycommitlogs", description = "Replays archived commitlogs using the commitlog directory specified in commitlog_archiving.properties.")
+    public static class ReplayCommitLogs extends NodeToolCmd
+    {
+        @Arguments(usage = "point_in_time", description = "Point-in-time from which to initiate replay of commitlogs.", required = true)
+        private List<String> recoveryPoint = new ArrayList(2);
+
+        @Override
+        public void execute(NodeProbe probe)
+        {
+            checkArgument(recoveryPoint.size() == 2, "replaycommitlogs requires a point-in0time formed from two components: a date and a time, e.g. 2014:08:06 10:43:15");
+            try
+            {
+                probe.recoverCommitlog(Joiner.on(" ").join(recoveryPoint));
+            }
+            catch (Exception e)
+            {
+                throw new RuntimeException("Error during commitlog replay", e);
             }
         }
     }
