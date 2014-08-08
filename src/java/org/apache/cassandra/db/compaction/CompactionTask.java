@@ -226,7 +226,12 @@ public class CompactionTask extends AbstractCompactionTask
 
         StringBuilder newSSTableNames = new StringBuilder();
         for (SSTableReader reader : newSStables)
+        {
             newSSTableNames.append(reader.descriptor.baseFilename()).append(",");
+            System.out.println(String.format("JBOD-7386: Compacting %d sstables to [%s] ",
+                               oldSStables.size(),
+                               new File(reader.descriptor.baseFilename()).getCanonicalPath()));
+        }
 
         double mbps = dTime > 0 ? (double) endsize / (1024 * 1024) / ((double) dTime / 1000) : 0;
         long totalSourceRows = 0;
