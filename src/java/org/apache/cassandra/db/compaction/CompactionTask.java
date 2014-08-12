@@ -17,14 +17,8 @@
  */
 package org.apache.cassandra.db.compaction;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.io.*;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.base.Predicate;
@@ -228,9 +222,24 @@ public class CompactionTask extends AbstractCompactionTask
         for (SSTableReader reader : newSStables)
         {
             newSSTableNames.append(reader.descriptor.baseFilename()).append(",");
-            System.out.println(String.format("JBOD-7386: Compacting %d sstables to [%s] ",
-                               oldSStables.size(),
-                               new File(reader.descriptor.baseFilename()).getCanonicalPath()));
+
+            String sstblLogLoc = System.getProperty("JBOD.sstable_log");
+            File sstblCreationLog = new File(sstblLogLoc);
+            if (!sstblCreationLog.exists())
+                sstblCreationLog.createNewFile();
+            if (!reader.metadata.cfName.equals("system"))
+            {
+                try(PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(sstblLogLoc, true))))
+                {
+                    out.println(String.format(new Date() + "JBOD-7386: Compacting %d sstables to [%s] ",
+                                              oldSStables.size(),
+                                              new File(reader.descriptor.baseFilename()).getCanonicalPath()));
+                }
+                catch (IOException e)
+                {
+                    throw new RuntimeException("Failed to append", e);
+                }
+            }
         }
 
         double mbps = dTime > 0 ? (double) endsize / (1024 * 1024) / ((double) dTime / 1000) : 0;
