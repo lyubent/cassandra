@@ -106,6 +106,9 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                 int sstableLevel = 0;
                 if (in.available() > 0)
                     sstableLevel = in.readInt();
+                Long repairedAt = null;
+                if (in.available() > 0)
+                    repairedAt = in.readLong();
 
                 List<ByteBuffer> minColumnNames;
                 List<ByteBuffer> maxColumnNames;
@@ -145,7 +148,8 @@ public class LegacyMetadataSerializer extends MetadataSerializer
                                                      tombstoneHistogram,
                                                      sstableLevel,
                                                      minColumnNames,
-                                                     maxColumnNames));
+                                                     maxColumnNames,
+                                                     repairedAt));
                 if (types.contains(MetadataType.COMPACTION))
                     components.put(MetadataType.COMPACTION,
                                    new CompactionMetadata(ancestors, null));

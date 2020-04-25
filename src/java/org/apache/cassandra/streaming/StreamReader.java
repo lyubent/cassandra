@@ -89,7 +89,7 @@ public class StreamReader
                 // TODO move this to BytesReadTracker
                 session.progress(desc, ProgressInfo.Direction.IN, in.getBytesRead(), totalSize);
             }
-            return writer.closeAndOpenReader();
+            return writer.closeAndOpenReader(null);
         }
         catch (Throwable e)
         {

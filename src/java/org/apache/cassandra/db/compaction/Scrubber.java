@@ -256,7 +256,9 @@ public class Scrubber implements Closeable
             }
 
             if (writer.getFilePointer() > 0)
-                newSstable = writer.closeAndOpenReader(sstable.maxDataAge);
+            // TODO 5351
+            // should this be null? Are we saying "Every time I compact, the table looses it's persisted repair status?"
+                newSstable = writer.closeAndOpenReader(sstable.maxDataAge, null);
         }
         catch (Throwable t)
         {
@@ -274,7 +276,7 @@ public class Scrubber implements Closeable
             SSTableWriter inOrderWriter = CompactionManager.createWriter(cfs, destination, expectedBloomFilterSize, sstable);
             for (Row row : outOfOrderRows)
                 inOrderWriter.append(row.key, row.cf);
-            newInOrderSstable = inOrderWriter.closeAndOpenReader(sstable.maxDataAge);
+            newInOrderSstable = inOrderWriter.closeAndOpenReader(sstable.maxDataAge, null);
             outputHandler.warn(String.format("%d out of order rows found while scrubbing %s; Those have been written (in order) to a new sstable (%s)", outOfOrderRows.size(), sstable, newInOrderSstable));
         }
 

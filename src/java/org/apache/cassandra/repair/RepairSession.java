@@ -269,6 +269,17 @@ public class RepairSession extends WrappedRunnable implements IEndpointStateChan
             // block whatever thread started this session until all requests have been returned:
             // if this thread dies, the session will still complete in the background
             completed.await();
+
+            // Create jobs for anticompaction. Jobs have to be added to queue once repair
+            // jobs have finished so that CompationManager#doValidationCompation has added
+            // the SSTables involved in the repair to StorageService#instance#validatedForRepair
+            for (String cfname : cfnames)
+            {
+                RepairJob job = new RepairJob(id, keyspace, cfname, range, isSequential);
+                jobs.offer(job);
+            }
+            jobs.peek().sendAnticompationRequest(endpoints, new HashSet<Range<Token>>(Arrays.asList(range)));
+
             if (exception == null)
             {
                 logger.info(String.format("[repair #%s] session completed successfully", getId()));

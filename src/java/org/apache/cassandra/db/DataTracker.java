@@ -615,7 +615,20 @@ public class DataTracker
                     newSSTables.add(sstable);
 
             Iterables.addAll(newSSTables, replacements);
-            assert newSSTables.size() == newSSTablesSize : String.format("Expecting new size of %d, got %d while replacing %s by %s in %s", newSSTablesSize, newSSTables.size(), oldSSTables, replacements, this);
+            // todo 5351
+            // in cluster = [a, b, c] this assert fails without throwing an assertion error (even when
+            // running the VM with the -ea flag) every time after one node (lets say b) is repaired
+            // an then another is attempted to be repaired (lets say c) If the repair is then repeated on
+            // node C or B the assert will be passed, however if it's attempted on A (as a hasn't been repaired)
+            // it will fail. This cycle repeats every time new data is added, swapping it with a runtime exception
+            // fixed the issue.
+            if (newSSTables.size() != newSSTablesSize)
+                throw new RuntimeException(String.format("Expecting new size of %d, got %d while replacing %s by %s in %s",
+                                                         newSSTablesSize,
+                                                         newSSTables.size(),
+                                                         oldSSTables,
+                                                         replacements,
+                                                         this));
             return ImmutableSet.copyOf(newSSTables);
         }
 

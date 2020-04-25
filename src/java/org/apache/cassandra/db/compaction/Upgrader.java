@@ -105,7 +105,9 @@ public class Upgrader
 
             long maxAge = CompactionTask.getMaxDataAge(this.toUpgrade);
             for (SSTableWriter completedWriter : writers)
-                sstables.add(completedWriter.closeAndOpenReader(maxAge));
+                // TODO 5351
+                // should this be null? Are we saying "Every time I compact, the table looses it's persisted repair status?"
+                sstables.add(completedWriter.closeAndOpenReader(maxAge, null));
 
             outputHandler.output("Upgrade of " + sstable + " complete.");
 

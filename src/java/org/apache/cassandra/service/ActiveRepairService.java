@@ -27,10 +27,12 @@ import com.google.common.collect.Sets;
 import org.apache.cassandra.concurrent.JMXConfigurableThreadPoolExecutor;
 import org.apache.cassandra.concurrent.NamedThreadFactory;
 import org.apache.cassandra.config.DatabaseDescriptor;
+import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.io.sstable.SSTableReader;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.repair.*;
 import org.apache.cassandra.repair.messages.RepairMessage;
@@ -74,9 +76,15 @@ public class ActiveRepairService
     }
 
     /**
-     * A map of active session.
+     * A map of active coordinator session.
      */
     private final ConcurrentMap<UUID, RepairSession> sessions;
+
+    /**
+     * A map of light sessions used in both the coordinator and followers for tracking
+     * repaired sstables that require anticompaction.
+     */
+    private final ConcurrentMap<UUID, AnticompactionSession> anticompactionSessions;
 
     /**
      * Protected constructor. Use ActiveRepairService.instance.
@@ -84,6 +92,23 @@ public class ActiveRepairService
     protected ActiveRepairService()
     {
         sessions = new ConcurrentHashMap<>();
+        anticompactionSessions = new ConcurrentHashMap<>();
+    }
+
+    public AnticompactionSession getAnticompactionSession(UUID sessionId)
+    {
+        return anticompactionSessions.get(sessionId);
+    }
+
+    public void addToAnticompactionSession(UUID sessionId, Collection<SSTableReader> validatedForRepair, ColumnFamilyStore cfs)
+    {
+        anticompactionSessions.put(sessionId, new AnticompactionSession(sessionId, validatedForRepair, cfs));
+    }
+
+    public void removeFromAnticompactionSession(UUID sessionId)
+    {
+        anticompactionSessions.get(sessionId).unlockTables();
+        anticompactionSessions.remove(sessionId);
     }
 
     /**

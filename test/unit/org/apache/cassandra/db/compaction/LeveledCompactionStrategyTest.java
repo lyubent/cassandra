@@ -84,7 +84,7 @@ public class LeveledCompactionStrategyTest extends SchemaLoader
         int gcBefore = keyspace.getColumnFamilyStore(cfname).gcBefore(System.currentTimeMillis());
         RepairJobDesc desc = new RepairJobDesc(UUID.randomUUID(), ksname, cfname, range);
         Validator validator = new Validator(desc, FBUtilities.getBroadcastAddress(), gcBefore);
-        CompactionManager.instance.submitValidation(cfs, validator).get();
+        CompactionManager.instance.submitValidation(cfs, validator, desc.sessionId).get();
     }
 
     /**

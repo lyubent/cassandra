@@ -98,6 +98,9 @@ public class LeveledManifest
     public synchronized void add(SSTableReader reader)
     {
         int level = reader.getSSTableLevel();
+        // if table is not repaired keep it at LO
+        if(reader.getSSTableMetadata().repairedAt == null)
+            level = 0;
         assert level < generations.length : "Invalid level " + level + " out of " + (generations.length - 1);
         logDistribution();
 
@@ -124,6 +127,17 @@ public class LeveledManifest
 
     public synchronized void replace(Collection<SSTableReader> removed, Collection<SSTableReader> added)
     {
+        // only use repaired sstables
+        Collection<SSTableReader> repairedToAdd = new HashSet<SSTableReader>();
+        Collection<SSTableReader> keepAtL0 = new HashSet<SSTableReader>();
+        for(SSTableReader sstable : added)
+        {
+            if (sstable.getSSTableMetadata().repairedAt != null)
+                repairedToAdd.add(sstable);
+            else
+                keepAtL0.add(sstable);
+        }
+
         assert !removed.isEmpty(); // use add() instead of promote when adding new sstables
         logDistribution();
         if (logger.isDebugEnabled())
@@ -138,17 +152,20 @@ public class LeveledManifest
             int thisLevel = remove(sstable);
             minLevel = Math.min(minLevel, thisLevel);
         }
-        lastCompactedKeys[minLevel] = SSTableReader.sstableOrdering.max(added).last;
 
         // it's valid to do a remove w/o an add (e.g. on truncate)
-        if (added.isEmpty())
-            return;
+        if (!repairedToAdd.isEmpty())
+        {
+            if (logger.isDebugEnabled())
+                logger.debug("Adding [{}]", toString(repairedToAdd));
+            for (SSTableReader ssTableReader : repairedToAdd)
+                add(ssTableReader);
+            lastCompactedKeys[minLevel] = SSTableReader.sstableOrdering.max(repairedToAdd).last;
+        }
 
-        if (logger.isDebugEnabled())
-            logger.debug("Adding [{}]", toString(added));
-
-        for (SSTableReader ssTableReader : added)
-            add(ssTableReader);
+        // keep unrepaired data at level 0
+        for (SSTableReader sstable : keepAtL0)
+            sendBackToL0(sstable);
     }
 
     public synchronized void repairOverlappingSSTables(int level)

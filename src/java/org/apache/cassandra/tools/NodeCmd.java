@@ -74,6 +74,7 @@ public class NodeCmd
     private static final Pair<String, String> UPGRADE_ALL_SSTABLE_OPT = Pair.create("a", "include-all-sstables");
     private static final Pair<String, String> NO_SNAPSHOT = Pair.create("ns", "no-snapshot");
     private static final Pair<String, String> CFSTATS_IGNORE_OPT = Pair.create("i", "ignore");
+    private static final Pair<String, String> REPAIR_ALL_OPT = Pair.create("ipr", "include-previously-repaired");
     private static final Pair<String, String> RESOLVE_IP = Pair.create("r", "resolve-ip");
 
     private static final String DEFAULT_HOST = "127.0.0.1";
@@ -101,6 +102,7 @@ public class NodeCmd
         options.addOption(UPGRADE_ALL_SSTABLE_OPT, false, "includes sstables that are already on the most recent version during upgradesstables");
         options.addOption(NO_SNAPSHOT, false, "disables snapshot creation for scrub");
         options.addOption(CFSTATS_IGNORE_OPT, false, "ignore the supplied list of keyspace.columnfamiles in statistics");
+        options.addOption(REPAIR_ALL_OPT, false, "repair all ranges including previously repaired ranges");
         options.addOption(RESOLVE_IP, false, "show node domain names instead of IPs");
     }
 
@@ -1567,15 +1569,16 @@ public class NodeCmd
                     boolean localDC = cmd.hasOption(LOCAL_DC_REPAIR_OPT.left);
                     boolean specificDC = cmd.hasOption(DC_REPAIR_OPT.left);
                     boolean primaryRange = cmd.hasOption(PRIMARY_RANGE_OPT.left);
+                    boolean fullRepair = cmd.hasOption(REPAIR_ALL_OPT.left);
                     Collection<String> dataCenters = null;
                     if (specificDC)
                         dataCenters = Arrays.asList(cmd.getOptionValue(DC_REPAIR_OPT.left).split(","));
                     else if (localDC)
                         dataCenters = Arrays.asList(probe.getDataCenter());
                     if (cmd.hasOption(START_TOKEN_OPT.left) || cmd.hasOption(END_TOKEN_OPT.left))
-                        probe.forceRepairRangeAsync(System.out, keyspace, sequential, dataCenters, cmd.getOptionValue(START_TOKEN_OPT.left), cmd.getOptionValue(END_TOKEN_OPT.left), columnFamilies);
+                        probe.forceRepairRangeAsync(System.out, keyspace, sequential, dataCenters, cmd.getOptionValue(START_TOKEN_OPT.left), cmd.getOptionValue(END_TOKEN_OPT.left), fullRepair, columnFamilies);
                     else
-                        probe.forceRepairAsync(System.out, keyspace, sequential, dataCenters, primaryRange, columnFamilies);
+                        probe.forceRepairAsync(System.out, keyspace, sequential, dataCenters, primaryRange, fullRepair, columnFamilies);
                     break;
                 case FLUSH   :
                     try { probe.forceKeyspaceFlush(keyspace, columnFamilies); }

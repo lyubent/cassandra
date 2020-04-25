@@ -65,7 +65,8 @@ public class MetadataCollector
                                  defaultTombstoneDropTimeHistogram(),
                                  0,
                                  Collections.<ByteBuffer>emptyList(),
-                                 Collections.<ByteBuffer>emptyList());
+                                 Collections.<ByteBuffer>emptyList(),
+                                 null);
     }
 
     protected EstimatedHistogram estimatedRowSize = defaultRowSizeHistogram();
@@ -214,7 +215,7 @@ public class MetadataCollector
         return this;
     }
 
-    public Map<MetadataType, MetadataComponent> finalizeMetadata(String partitioner, double bloomFilterFPChance)
+    public Map<MetadataType, MetadataComponent> finalizeMetadata(String partitioner, double bloomFilterFPChance, Long repairedAt)
     {
         Map<MetadataType, MetadataComponent> components = Maps.newHashMap();
         components.put(MetadataType.VALIDATION, new ValidationMetadata(partitioner, bloomFilterFPChance));
@@ -228,7 +229,8 @@ public class MetadataCollector
                                                              estimatedTombstoneDropTime,
                                                              sstableLevel,
                                                              minColumnNames,
-                                                             maxColumnNames));
+                                                             maxColumnNames,
+                                                             repairedAt));
         components.put(MetadataType.COMPACTION, new CompactionMetadata(ancestors, cardinality));
         return components;
     }

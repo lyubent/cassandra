@@ -1075,6 +1075,11 @@ public class ColumnFamilyStore implements ColumnFamilyStoreMBean
         CompactionManager.instance.performCleanup(ColumnFamilyStore.this, renewer);
     }
 
+    public void forceAntiCompaction(final Collection<Range<Token>> ranges, final Collection<SSTableReader> validatedForRepair) throws InterruptedException, ExecutionException, IOException
+    {
+        CompactionManager.instance.performAnticompaction(ColumnFamilyStore.this, ranges, validatedForRepair);
+    }
+
     public void scrub(boolean disableSnapshot) throws ExecutionException, InterruptedException
     {
         // skip snapshot creation during scrub, SEE JIRA 5891

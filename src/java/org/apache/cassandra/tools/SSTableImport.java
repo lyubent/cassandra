@@ -410,7 +410,8 @@ public class SSTableImport
                 break;
         }
 
-        writer.closeAndOpenReader();
+        // import the table as unrepaired, see CASSANDRA-5351
+        writer.closeAndOpenReader(null);
 
         return importedKeys;
     }
@@ -491,7 +492,7 @@ public class SSTableImport
 
         }
 
-        writer.closeAndOpenReader();
+        writer.closeAndOpenReader(null);
 
         return importedKeys;
     }

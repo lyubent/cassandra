@@ -359,7 +359,8 @@ public class Memtable
 
                 if (writer.getFilePointer() > 0)
                 {
-                    ssTable = writer.closeAndOpenReader();
+                    // temp sstables should contain non-repaired data.
+                    ssTable = writer.closeAndOpenReader(null);
                     logger.info(String.format("Completed flushing %s (%d bytes) for commitlog position %s",
                                               ssTable.getFilename(), new File(ssTable.getFilename()).length(), context.get()));
                 }

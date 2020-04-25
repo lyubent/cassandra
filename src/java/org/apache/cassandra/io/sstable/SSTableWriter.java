@@ -58,6 +58,7 @@ public class SSTableWriter extends SSTable
     private DecoratedKey lastWrittenKey;
     private FileMark dataMark;
     private final MetadataCollector sstableMetadataCollector;
+    private Long repairedAt;
 
     public SSTableWriter(String filename, long keyCount)
     {
@@ -309,13 +310,14 @@ public class SSTableWriter extends SSTable
         }
     }
 
-    public SSTableReader closeAndOpenReader()
+    public SSTableReader closeAndOpenReader(Long repairedAt)
     {
-        return closeAndOpenReader(System.currentTimeMillis());
+        return closeAndOpenReader(System.currentTimeMillis(), repairedAt);
     }
 
-    public SSTableReader closeAndOpenReader(long maxDataAge)
+    public SSTableReader closeAndOpenReader(long maxDataAge, Long repairedAt)
     {
+        this.repairedAt = repairedAt;
         Pair<Descriptor, StatsMetadata> p = close();
         Descriptor newdesc = p.left;
         StatsMetadata sstableMetadata = p.right;
@@ -352,7 +354,8 @@ public class SSTableWriter extends SSTable
         // write sstable statistics
         Map<MetadataType, MetadataComponent> metadataComponents = sstableMetadataCollector.finalizeMetadata(
                                                                                     partitioner.getClass().getCanonicalName(),
-                                                                                    metadata.getBloomFilterFpChance());
+                                                                                    metadata.getBloomFilterFpChance(),
+                                                                                    repairedAt);
         writeMetadata(descriptor, metadataComponents);
 
         // save the table of components

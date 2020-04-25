@@ -110,6 +110,7 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy implem
         while (true)
         {
             OperationType op;
+            Collection<SSTableReader> sstables = new HashSet<SSTableReader>();
             LeveledManifest.CompactionCandidate candidate = manifest.getCompactionCandidates();
             if (candidate == null)
             {
@@ -123,16 +124,22 @@ public class LeveledCompactionStrategy extends AbstractCompactionStrategy implem
                 candidate = new LeveledManifest.CompactionCandidate(Collections.singleton(sstable),
                                                                     sstable.getSSTableLevel(),
                                                                     getMaxSSTableBytes());
+                sstables = candidate.sstables;
                 op = OperationType.TOMBSTONE_COMPACTION;
             }
             else
             {
+                for(SSTableReader sstable : candidate.sstables)
+                    if (sstable.getSSTableMetadata().repairedAt != null)
+                        sstables.add(sstable);
                 op = OperationType.COMPACTION;
+                // todo 5351 - handle unrepaired compaction (should be sizetiered)
             }
 
-            if (cfs.getDataTracker().markCompacting(candidate.sstables))
+            // tombstone compaction and repaired table compaction
+            if (sstables.size() > 0 && cfs.getDataTracker().markCompacting(candidate.sstables))
             {
-                LeveledCompactionTask newTask = new LeveledCompactionTask(cfs, candidate.sstables, candidate.level, gcBefore, candidate.maxSSTableBytes);
+                LeveledCompactionTask newTask = new LeveledCompactionTask(cfs, sstables, candidate.level, gcBefore, candidate.maxSSTableBytes);
                 newTask.setCompactionType(op);
                 return newTask;
             }

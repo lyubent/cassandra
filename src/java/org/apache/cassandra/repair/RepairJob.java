@@ -37,6 +37,7 @@ import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessagingService;
+import org.apache.cassandra.repair.messages.AnticompactionRequest;
 import org.apache.cassandra.repair.messages.ValidationRequest;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.MerkleTree;
@@ -116,6 +117,20 @@ public class RepairJob
         logger.info(String.format("[repair #%s] requesting merkle trees for %s (to %s)", desc.sessionId, desc.columnFamily, allEndpoints));
         treeRequests.start();
         requestsSent.signalAll();
+    }
+
+    /**
+     * Force repair participants to carry out anticompaction on newly repaired ranges.
+     * Anticompaction functions at the session level upon a completion of a successful repair.
+     */
+    public void sendAnticompationRequest(Collection<InetAddress> endpoints, Collection<Range<Token>> ranges)
+    {
+        // Request an anticompaction for each participant
+        for(InetAddress endpoint : endpoints)
+        {
+            AnticompactionRequest request = new AnticompactionRequest(desc, ranges);
+            MessagingService.instance().sendOneWay(request.createMessage(), endpoint);
+        }
     }
 
     public void makeSnapshots(Collection<InetAddress> endpoints)
