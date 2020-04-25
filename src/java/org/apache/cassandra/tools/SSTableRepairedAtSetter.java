@@ -47,6 +47,7 @@ public class SSTableRepairedAtSetter
     public static void main(final String[] args) throws IOException
     {
         PrintStream out = System.out;
+        long start = System.currentTimeMillis();
         if (args.length == 0)
         {
             out.println("This command should be run with Cassandra stopped!");
@@ -95,5 +96,6 @@ public class SSTableRepairedAtSetter
                 descriptor.getMetadataSerializer().mutateRepairMetadata(descriptor, 0, null, false);
             }
         }
+        out.println("Completed. Duration (ms): " + (System.currentTimeMillis() - start));
     }
 }
